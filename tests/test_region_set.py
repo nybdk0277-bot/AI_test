@@ -1,6 +1,7 @@
 import json
+from unittest.mock import MagicMock, patch
 
-from svtracker.capture.screen_capture import RegionSet
+from svtracker.capture.screen_capture import RegionSet, list_monitors
 
 
 def test_add_and_remove_slot():
@@ -68,3 +69,25 @@ def test_save_writes_plain_lists(tmp_path):
 
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert raw == {"self_hand": [[10, 20, 30, 40]]}
+
+
+def test_list_monitors_wraps_mss_monitor_dicts():
+    fake_sct = MagicMock()
+    fake_sct.monitors = [
+        {"left": 0, "top": 0, "width": 3840, "height": 1080},  # index 0: 全モニタ結合
+        {"left": 0, "top": 0, "width": 1920, "height": 1080},
+        {"left": 1920, "top": 0, "width": 1920, "height": 1080},
+    ]
+    fake_sct.__enter__.return_value = fake_sct
+    fake_sct.__exit__.return_value = False
+
+    with patch("svtracker.capture.screen_capture.mss.mss", return_value=fake_sct):
+        monitors = list_monitors()
+
+    assert len(monitors) == 3
+    assert monitors[0].index == 0
+    assert monitors[0].is_virtual_combined is True
+    assert monitors[1].index == 1
+    assert monitors[1].width == 1920
+    assert monitors[1].is_virtual_combined is False
+    assert monitors[2].left == 1920
