@@ -4,10 +4,33 @@ from __future__ import annotations
 import sqlite3
 import time
 from contextlib import closing
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 from svtracker.game.models import Action, Player
+
+# end_match() の result に使う正規値。それ以外の文字列("unknown"等)は
+# 勝率集計(WinStats)の対象から除外される。
+RESULT_WIN = "win"
+RESULT_LOSS = "loss"
+_DECIDED_RESULTS = (RESULT_WIN, RESULT_LOSS)
+
+
+@dataclass
+class WinStats:
+    wins: int
+    losses: int
+
+    @property
+    def total(self) -> int:
+        return self.wins + self.losses
+
+    @property
+    def win_rate(self) -> Optional[float]:
+        if self.total == 0:
+            return None
+        return self.wins / self.total
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS matches (
@@ -125,6 +148,46 @@ class MatchLog:
             )
             count = cur.fetchone()[0]
         return min(1.0, count / total)
+
+    def match_results(
+        self, self_clan: Optional[str] = None, opponent_clan: Optional[str] = None
+    ) -> WinStats:
+        """勝敗(win/loss)が記録された対戦を集計する。"unknown"等の未記録分は含めない.
+
+        self_clan / opponent_clan を指定するとそのクラス(組み合わせ)に絞り込む。
+        """
+        query = "SELECT result, COUNT(*) FROM matches WHERE result IN (?, ?)"
+        params: list = [RESULT_WIN, RESULT_LOSS]
+        if self_clan:
+            query += " AND self_clan = ?"
+            params.append(self_clan)
+        if opponent_clan:
+            query += " AND opponent_clan = ?"
+            params.append(opponent_clan)
+        query += " GROUP BY result"
+        with closing(self._conn.cursor()) as cur:
+            cur.execute(query, params)
+            counts = dict(cur.fetchall())
+        return WinStats(wins=counts.get(RESULT_WIN, 0), losses=counts.get(RESULT_LOSS, 0))
+
+    def card_win_rate(self, self_clan: str, opponent_clan: str, card_id: str) -> WinStats:
+        """指定クラス相手の対戦のうち、自分がそのカードをプレイした対戦の勝敗を集計する.
+
+        同じ対戦で同じカードを複数回プレイしても1対戦として数える(DISTINCT match_id)。
+        """
+        with closing(self._conn.cursor()) as cur:
+            cur.execute(
+                """SELECT DISTINCT matches.id, matches.result
+                   FROM actions JOIN matches ON actions.match_id = matches.id
+                   WHERE actions.player = ? AND actions.card_id = ?
+                     AND matches.self_clan = ? AND matches.opponent_clan = ?
+                     AND matches.result IN (?, ?)""",
+                (Player.SELF.value, card_id, self_clan, opponent_clan, RESULT_WIN, RESULT_LOSS),
+            )
+            rows = cur.fetchall()
+        wins = sum(1 for _match_id, result in rows if result == RESULT_WIN)
+        losses = sum(1 for _match_id, result in rows if result == RESULT_LOSS)
+        return WinStats(wins=wins, losses=losses)
 
     def opponent_card_pool(self, opponent_clan: str, limit: int = 200) -> list[tuple[str, int]]:
         """そのクラス相手に過去プレイされたカードと、プレイされた対戦数の一覧

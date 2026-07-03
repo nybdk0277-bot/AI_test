@@ -72,6 +72,19 @@ def _cmd_list_monitors(args: argparse.Namespace) -> None:
           "config/settings.json の monitor_index に設定してください。")
 
 
+def _prompt_match_result() -> str:
+    """監視終了時に対戦結果を対話的に確認する。入力が読めない/該当しない場合は記録しない."""
+    try:
+        answer = input("対戦結果を記録しますか? (w=勝ち / l=負け / それ以外=記録しない): ").strip().lower()
+    except (EOFError, OSError):
+        return "unknown"
+    if answer in ("w", "win", "勝ち"):
+        return "win"
+    if answer in ("l", "lose", "loss", "負け"):
+        return "loss"
+    return "unknown"
+
+
 def _cmd_run(args: argparse.Namespace) -> None:
     from svtracker.app import MonitorApp
     from svtracker.game.models import GameFormat
@@ -81,10 +94,7 @@ def _cmd_run(args: argparse.Namespace) -> None:
     app = MonitorApp(
         settings, self_clan=args.self_clan, opponent_clan=args.opponent_clan, game_format=game_format
     )
-    try:
-        app.run_forever()
-    finally:
-        app.close()
+    app.run_forever(on_finish=_prompt_match_result)
 
 
 def _cmd_stats(args: argparse.Namespace) -> None:
@@ -96,6 +106,15 @@ def _cmd_stats(args: argparse.Namespace) -> None:
         return
     log = MatchLog(settings.match_db_path)
     try:
+        stats = log.match_results(self_clan=args.self_clan or None, opponent_clan=args.clan)
+        if stats.total > 0:
+            print(
+                f"クラス '{args.clan}' 相手の戦績: {stats.wins}勝{stats.losses}敗"
+                f" (勝率{stats.win_rate:.0%}、{stats.total}戦)"
+            )
+        else:
+            print(f"クラス '{args.clan}' 相手の勝敗記録はまだありません(記録するには `run` 終了時に入力してください)。")
+
         pool = log.opponent_card_pool(args.clan)
         if not pool:
             print(f"クラス '{args.clan}' の対戦記録が見つかりませんでした。")
@@ -155,7 +174,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.set_defaults(func=_cmd_run)
 
     p_stats = sub.add_parser("stats", help="記録済みの対戦統計を表示する")
-    p_stats.add_argument("clan", help="対象クラス名")
+    p_stats.add_argument("clan", help="対象クラス名(相手クラス)")
+    p_stats.add_argument("--self-clan", default="", help="自分のクラス名で絞り込む(省略時は全クラス合算)")
     p_stats.add_argument("--top", type=int, default=20)
     p_stats.set_defaults(func=_cmd_stats)
 
