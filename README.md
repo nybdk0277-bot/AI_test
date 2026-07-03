@@ -110,6 +110,26 @@ svtracker stats ロイヤル
   画面上の矩形領域と、手番判定用の座標 (`active_player_pixel`)。
   **解像度・UIレイアウトごとに調整が必須**です。
 
+## Windowsインストーラ
+
+Python環境を用意しなくても使えるように、PyInstallerでの単体exe化とInno Setupでの
+インストーラ作成に対応しています。実際のビルドはGitHub Actions (`windows-latest`
+ランナー)で行われるため、この開発環境(Linuxサンドボックス)では作れませんが、
+CIで実機Windows相当の環境を使ってビルド・動作確認しています。
+
+- 入手方法: GitHubリポジトリの Actions タブ → `Build Windows Installer` ワークフロー
+  → 対象の実行 → Artifacts から `svtracker-windows-installer` (インストーラ) または
+  `svtracker-exe` (単体exe) をダウンロード。タグ `v*` をpushすると自動でも走ります。
+- インストーラは `svtracker.exe` と `config/*.example.json`、READMEを
+  `Program Files\svtracker` 配下に配置します。`data/`, `config/settings.json`,
+  `config/regions.json` は README の手順に従って別途用意してください。
+- **OCR(ターン/PP/ライフ読み取り)を使うには、インストーラとは別に
+  [Tesseract OCR本体](https://github.com/tesseract-ocr/tesseract) のインストールが必要です**
+  (バイナリはライセンス・サイズの都合でインストーラに同梱していません)。
+- ローカルでビルドする場合は `packaging/entrypoint.py` を PyInstaller で、
+  `packaging/installer.iss` を Inno Setup (`ISCC.exe`) でビルドしてください。
+  具体的なコマンドは `.github/workflows/build-windows-installer.yml` を参照してください。
+
 ## 仕組みの概要
 
 ```
