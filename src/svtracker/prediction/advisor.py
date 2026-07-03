@@ -4,13 +4,19 @@
   1. リーサル(相手を倒しきれるか)の検出
   2. 損をしない/得するフォロワートレードの検出
   3. 手札を使ってPPを無駄なく使う組み合わせの提案
+  4. (対戦記録が十分あれば)過去にプレイして勝率が高かったカードの提示
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 
 from svtracker.cards.models import Card
 from svtracker.game.match_tracker import MatchTracker
+from svtracker.storage.match_log import MatchLog, WinStats
+
+# 勝率提案を出すために必要な最低対戦数(サンプルが少なすぎるとノイズが大きいため)。
+MIN_WIN_RATE_SAMPLES = 3
 
 
 @dataclass
@@ -20,7 +26,9 @@ class Recommendation:
     priority: int  # 小さいほど優先度が高い
 
 
-def recommend_actions(tracker: MatchTracker, hand: list[Card]) -> list[Recommendation]:
+def recommend_actions(
+    tracker: MatchTracker, hand: list[Card], match_log: Optional[MatchLog] = None
+) -> list[Recommendation]:
     state = tracker.state
     recs: list[Recommendation] = []
 
@@ -93,8 +101,40 @@ def recommend_actions(tracker: MatchTracker, hand: list[Card]) -> list[Recommend
             )
         )
 
+    if match_log is not None and state.self_clan and state.opponent_clan:
+        best = _best_win_rate_card(match_log, state.self_clan, state.opponent_clan, playable)
+        if best is not None:
+            card, stats = best
+            recs.append(
+                Recommendation(
+                    title=f"勝率の高いカード: {card.name}",
+                    detail=(
+                        f"{state.opponent_clan}相手に{card.name}をプレイした過去{stats.total}戦の"
+                        f"勝率は{stats.win_rate:.0%}でした。優先してプレイを検討してください。"
+                    ),
+                    priority=1,
+                )
+            )
+
     recs.sort(key=lambda r: r.priority)
     return recs
+
+
+def _best_win_rate_card(
+    match_log: MatchLog, self_clan: str, opponent_clan: str, playable: list[Card]
+) -> Optional[tuple[Card, WinStats]]:
+    """現在プレイ可能な手札の中で、過去の勝率が最も高いカードを選ぶ.
+
+    対戦数が MIN_WIN_RATE_SAMPLES 未満のカードはノイズが大きいため候補にしない。
+    """
+    best = None
+    for card in playable:
+        stats = match_log.card_win_rate(self_clan, opponent_clan, card.card_id)
+        if stats.total < MIN_WIN_RATE_SAMPLES:
+            continue
+        if best is None or stats.win_rate > best[1].win_rate:
+            best = (card, stats)
+    return best
 
 
 def _best_pp_combo(cards: list[Card], pp: int) -> list[Card]:

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 from svtracker.cards.card_database import CardDatabase
 from svtracker.cards.card_matcher import CardMatcher
@@ -62,6 +62,14 @@ class MonitorApp:
         self.capture.close()
         if self.match_log is not None:
             self.match_log.close()
+
+    def end_match(self, result: str = "unknown") -> None:
+        """対戦結果("win"/"loss"/"unknown")を記録して対戦ログを確定する.
+
+        画面から自動判定はしないため、GUI/CLI側でユーザーに確認したタイミングで呼ぶ想定。
+        """
+        if self.match_log is not None and self.match_id is not None:
+            self.match_log.end_match(self.match_id, result)
 
     def _recognize_slots(self, frame, region_name: str) -> list[Optional[str]]:
         if self.regions is None:
@@ -240,11 +248,13 @@ class MonitorApp:
 
         self_hand_cards = [self.database.get(cid) for cid in self_hand_ids if cid]
         self_hand_cards = [c for c in self_hand_cards if c is not None]
-        recs = recommend_actions(self.tracker, self_hand_cards)
+        recs = recommend_actions(self.tracker, self_hand_cards, match_log=self.match_log)
         for rec in recs[:3]:
             logger.info("提案: %s - %s", rec.title, rec.detail)
 
-    def run_forever(self) -> None:
+    def run_forever(self, on_finish: Optional[Callable[[], str]] = None) -> None:
+        """`on_finish` は監視終了時に呼ばれ、対戦結果("win"/"loss"/"unknown")を返す想定
+        (CLIでのインタラクティブな確認などに使う)。省略時は "unknown" として記録する。"""
         try:
             while True:
                 self.step()
@@ -252,6 +262,6 @@ class MonitorApp:
         except KeyboardInterrupt:
             logger.info("停止します")
         finally:
-            if self.match_log is not None and self.match_id is not None:
-                self.match_log.end_match(self.match_id, "unknown")
+            result = on_finish() if on_finish is not None else "unknown"
+            self.end_match(result)
             self.close()

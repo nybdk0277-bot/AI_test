@@ -540,6 +540,7 @@ class MonitorTab(ttk.Frame):
     def __init__(self, parent, app: App):
         super().__init__(parent, padding=8)
         self.app = app
+        self._pending_result = "unknown"
 
         form = ttk.Frame(self)
         form.pack(fill="x")
@@ -610,6 +611,7 @@ class MonitorTab(ttk.Frame):
         self_clan = self.self_clan_var.get()
         opponent_clan = self.opponent_clan_var.get()
         game_format = GameFormat(GAME_FORMAT_VALUES.get(self.format_var.get(), "unlimited"))
+        self._pending_result = "unknown"
         self.app.monitor_stop_event.clear()
         self.status_var.set("開始中...")
         self.start_button.config(state="disabled")
@@ -636,6 +638,7 @@ class MonitorTab(ttk.Frame):
                     logger.exception("監視ループでエラーが発生しました")
                 self.app.monitor_stop_event.wait(interval)
             try:
+                monitor_app.end_match(self._pending_result)
                 monitor_app.close()
             except Exception:  # noqa: BLE001
                 logger.exception("監視の終了処理でエラーが発生しました")
@@ -654,8 +657,33 @@ class MonitorTab(ttk.Frame):
         messagebox.showerror("開始できません", str(exc))
 
     def _stop(self) -> None:
+        self._pending_result = self._ask_match_result()
         self.stop_button.config(state="disabled")
         self.app.run_in_background(self.stop_monitoring, on_done=lambda _: self._on_stopped())
+
+    def _ask_match_result(self) -> str:
+        """対戦結果を確認するモーダルダイアログ(メインスレッドから同期的に呼ぶこと)。"""
+        dialog = tk.Toplevel(self)
+        dialog.title("対戦結果")
+        dialog.transient(self)
+        dialog.resizable(False, False)
+        ttk.Label(dialog, text="この対戦の結果を記録しますか?", padding=(16, 16, 16, 8)).pack()
+
+        chosen = {"value": "unknown"}
+
+        def choose(value: str) -> None:
+            chosen["value"] = value
+            dialog.destroy()
+
+        btn_row = ttk.Frame(dialog)
+        btn_row.pack(pady=(0, 16))
+        ttk.Button(btn_row, text="勝ち", command=lambda: choose("win")).pack(side="left", padx=6)
+        ttk.Button(btn_row, text="負け", command=lambda: choose("loss")).pack(side="left", padx=6)
+        ttk.Button(btn_row, text="記録しない", command=lambda: choose("unknown")).pack(side="left", padx=6)
+        dialog.protocol("WM_DELETE_WINDOW", lambda: choose("unknown"))
+        dialog.grab_set()
+        self.wait_window(dialog)
+        return chosen["value"]
 
     def _on_stopped(self) -> None:
         self.status_var.set("停止中")
@@ -683,6 +711,9 @@ class StatsTab(ttk.Frame):
         ttk.Entry(form, textvariable=self.clan_var, width=16).pack(side="left", padx=4)
         ttk.Button(form, text="表示", command=self._refresh).pack(side="left")
 
+        self.win_rate_var = tk.StringVar(value="")
+        ttk.Label(self, textvariable=self.win_rate_var, font=("", 10, "bold")).pack(anchor="w", pady=(8, 0))
+
         columns = ("name", "count")
         self.tree = ttk.Treeview(self, columns=columns, show="headings")
         self.tree.heading("name", text="カード名")
@@ -701,9 +732,18 @@ class StatsTab(ttk.Frame):
 
         log = MatchLog(self.app.settings.match_db_path)
         try:
+            win_stats = log.match_results(opponent_clan=clan)
             pool = log.opponent_card_pool(clan)
         finally:
             log.close()
+
+        if win_stats.total > 0:
+            self.win_rate_var.set(
+                f"戦績: {win_stats.wins}勝{win_stats.losses}敗 (勝率{win_stats.win_rate:.0%}、{win_stats.total}戦)"
+            )
+        else:
+            self.win_rate_var.set("戦績: 記録なし")
+
         if not pool:
             messagebox.showinfo("記録なし", f"クラス '{clan}' の対戦記録が見つかりませんでした。")
             return
