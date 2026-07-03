@@ -58,3 +58,40 @@ def test_pp_combo_suggestion_maximizes_pp_usage():
     assert "コスト2" in pp_rec.detail
     assert "コスト3" in pp_rec.detail
     assert "コスト4" not in pp_rec.detail  # 2+3=5がPPを使い切る最適解
+
+
+def test_pp_combo_suggestion_includes_extra_pp():
+    tracker = MatchTracker()
+    tracker.state.self_pp = 3
+    tracker.state.self_extra_pp = 2
+    hand = [
+        Card(card_id="a", name="コスト3", clan="ニュートラル", cost=3, card_type="フォロワー"),
+        Card(card_id="b", name="コスト2", clan="ニュートラル", cost=2, card_type="フォロワー"),
+    ]
+
+    recs = recommend_actions(tracker, hand=hand)
+
+    pp_rec = next(r for r in recs if r.title == "PP消費の提案")
+    assert "コスト3" in pp_rec.detail
+    assert "コスト2" in pp_rec.detail
+    assert "エクストラPPを2消費" in pp_rec.detail
+
+
+def test_evolution_point_suggestion_when_ep_available():
+    tracker = MatchTracker()
+    tracker.state.self_ep = 2
+    tracker.set_self_board([BoardUnit(card_id="1", name="味方", atk=2, hp=2, can_attack=True)])
+
+    recs = recommend_actions(tracker, hand=[])
+
+    assert any("進化ポイント" in r.title for r in recs)
+
+
+def test_no_evolution_suggestion_when_ep_is_zero():
+    tracker = MatchTracker()
+    tracker.state.self_ep = 0
+    tracker.set_self_board([BoardUnit(card_id="1", name="味方", atk=2, hp=2, can_attack=True)])
+
+    recs = recommend_actions(tracker, hand=[])
+
+    assert not any("進化ポイント" in r.title for r in recs)

@@ -17,6 +17,9 @@ class MatchState:
     opponent_life: int = 20
     self_pp: int = 0
     self_max_pp: int = 0
+    self_extra_pp: int = 0  # 使わなかったPPを持ち越すエクストラPP(最大2)
+    self_ep: int = 0  # 自分の進化ポイント(残り回数)
+    opponent_ep: int = 0  # 相手の進化ポイント(残り回数)
     self_hand_card_ids: set[str] = field(default_factory=set)
     self_board: list[BoardUnit] = field(default_factory=list)
     opponent_board: list[BoardUnit] = field(default_factory=list)
@@ -77,6 +80,13 @@ class MatchTracker:
     def set_pp(self, current: int, maximum: int) -> None:
         self.state.self_pp = current
         self.state.self_max_pp = maximum
+
+    def set_extra_pp(self, extra_pp: int) -> None:
+        self.state.self_extra_pp = extra_pp
+
+    def set_ep(self, self_ep: int, opponent_ep: int) -> None:
+        self.state.self_ep = self_ep
+        self.state.opponent_ep = opponent_ep
 
     def set_life(self, self_life: int, opponent_life: int) -> None:
         self.state.self_life = self_life

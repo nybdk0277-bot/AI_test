@@ -30,6 +30,9 @@ REGION_LABELS = {
     "self_pp": "自分のPP表示",
     "self_life": "自分のライフ表示",
     "opponent_life": "相手のライフ表示",
+    "self_extra_pp": "自分のエクストラPP表示",
+    "self_ep": "自分の進化ポイント表示",
+    "opponent_ep": "相手の進化ポイント表示",
     "active_player_pixel": "手番判定ピクセル",
 }
 REGION_COLORS = {
@@ -40,6 +43,9 @@ REGION_COLORS = {
     "self_pp": "#33ccff",
     "self_life": "#33ff77",
     "opponent_life": "#ff5566",
+    "self_extra_pp": "#33aaff",
+    "self_ep": "#cc99ff",
+    "opponent_ep": "#ff99cc",
 }
 REGION_ORDER = RECT_LIST_REGIONS + RECT_SINGLE_REGIONS + POINT_REGIONS
 DEFAULT_SLOT_COUNT = {"self_hand": 9, "self_board": 7, "opponent_board": 7}

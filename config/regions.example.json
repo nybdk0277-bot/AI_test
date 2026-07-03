@@ -34,5 +34,8 @@
   "self_pp": [1700, 950, 120, 40],
   "self_life": [1750, 1000, 80, 40],
   "opponent_life": [1750, 40, 80, 40],
+  "self_extra_pp": [1700, 995, 60, 30],
+  "self_ep": [1620, 950, 60, 30],
+  "opponent_ep": [1620, 40, 60, 30],
   "active_player_pixel": [960, 540]
 }

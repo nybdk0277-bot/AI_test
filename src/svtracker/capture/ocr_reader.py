@@ -72,6 +72,16 @@ def read_pp(image: Image.Image) -> Optional[tuple[int, int]]:
     return parse_pp_text(_ocr_digits_string(image))
 
 
+def read_extra_pp(image: Image.Image) -> Optional[int]:
+    """持ち越し分のエクストラPP(0〜2)表示を読み取る."""
+    return parse_int_text(_ocr_digits_string(image))
+
+
+def read_evolution_points(image: Image.Image) -> Optional[int]:
+    """残り進化ポイント表示を読み取る."""
+    return parse_int_text(_ocr_digits_string(image))
+
+
 def sample_pixel_color(image: Image.Image, xy: tuple[int, int]) -> tuple[int, int, int]:
     pixel = image.convert("RGB").getpixel(xy)
     return pixel[0], pixel[1], pixel[2]

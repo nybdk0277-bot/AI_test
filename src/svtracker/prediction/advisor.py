@@ -65,15 +65,30 @@ def recommend_actions(tracker: MatchTracker, hand: list[Card]) -> list[Recommend
                     )
                 )
 
-    playable = [c for c in hand if c.cost <= state.self_pp]
-    combo = _best_pp_combo(playable, state.self_pp)
+    spendable_pp = state.self_pp + state.self_extra_pp
+    playable = [c for c in hand if c.cost <= spendable_pp]
+    combo = _best_pp_combo(playable, spendable_pp)
     if combo:
         names = ", ".join(c.name for c in combo)
         used = sum(c.cost for c in combo)
+        extra_used = max(0, used - state.self_pp)
+        if extra_used > 0:
+            detail = (
+                f"{names} をプレイすると PP {used} を使い切れます"
+                f"(通常PP {state.self_pp} に加えエクストラPPを{extra_used}消費)。"
+            )
+        else:
+            detail = f"{names} をプレイすると PP {used}/{state.self_pp} を無駄なく使えます。"
+        recs.append(Recommendation(title="PP消費の提案", detail=detail, priority=2))
+
+    if state.self_ep > 0 and state.self_board:
         recs.append(
             Recommendation(
-                title="PP消費の提案",
-                detail=f"{names} をプレイすると PP {used}/{state.self_pp} を無駄なく使えます。",
+                title="進化ポイントが残っています",
+                detail=(
+                    f"進化ポイントが{state.self_ep}残っています。攻撃力を上げたい/守りたい"
+                    "フォロワーへの進化を検討してください。"
+                ),
                 priority=2,
             )
         )
