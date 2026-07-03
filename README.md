@@ -14,6 +14,7 @@ Shadowverse: Worlds Beyond (Steam版) の対戦画面を監視し、
 - **できる**: カード画像同士の照合(pHash)、手札→盤面の差分によるプレイ検出、
   OCR/ピクセル色判定によるターン数・手番・PP・ライフの読み取り、対戦ログのSQLite記録、
   記録に基づく簡易な相手行動予測、盤面状況からのリーサル検出・トレード提案・PP消費提案。
+  これらはシェル操作なしで完結するデスクトップGUI(Tkinter、`svtracker-gui`)からも操作できます。
 - **精度に限界がある**: 盤面ユニットのATK/HPはカードマスタの基礎値をそのまま使っており、
   バフ/デバフ・疲労状態(攻撃済みかどうか)・進化状態は画面から読み取っていないため
   常に「攻撃可能・未進化」扱いになります。より正確にするにはユニット上のATK/HP表示OCRや
@@ -27,6 +28,8 @@ Shadowverse: Worlds Beyond (Steam版) の対戦画面を監視し、
   冒頭のCSSセレクタ定数を実際のページに合わせて調整してください。
   うまく動かない場合は `import-cards` (後述)でローカルに用意した画像+CSVから
   カードDBを構築する方法を使ってください。
+  GUIについては、ウィジェットの生成・操作・保存までの一連の流れをXvfb(仮想ディスプレイ)上で
+  自動チェック済みですが、実際のWindowsデスクトップでの見た目・操作感は未確認です。
 
 ## セットアップ
 
@@ -42,7 +45,32 @@ pip install -e ".[dev,windows,ocr]"
   (Windowsはインストーラでパスを通すか `pytesseract.pytesseract.tesseract_cmd` を設定)。
   未導入の場合はターン/PP/ライフの自動読み取りが無効になり、ターン数は1のまま進みません。
 
-## 使い方
+## 使い方(GUI版・おすすめ)
+
+Windowsインストーラを使う場合、コマンド操作は不要です。インストール後にデスクトップ/
+スタートメニューの「svtracker」を起動すると、以下の4タブを持つウィンドウが開きます。
+
+1. **カードDB タブ**: 「公式サイトから取得」または「ローカルの画像+CSVから取り込み」ボタンで
+   カードマスタを用意します。
+2. **キャリブレーション タブ**: 「スクリーンショットを撮る」ボタンで画面を取得し、右側の
+   一覧から編集したい領域(手札・盤面・ターン表示など)を選んでから、
+   画面プレビュー上をドラッグ(矩形)またはクリック(座標・手番判定用ピクセル)で指定します。
+   手番判定の基準色も、プレビュー上をクリックするだけで登録できます。
+   「regions.json / settings.json に保存」で確定します。
+3. **監視 タブ**: 自分/相手のクランを入力し「開始」。認識したプレイ・予測・提案が
+   ログ欄にリアルタイム表示されます。「停止」で対戦記録が保存されます。
+4. **統計 タブ**: 相手クラン名を入力すると、そのクラン相手に過去よく使われたカードの
+   一覧が表示されます。
+
+GUIも内部的には下記CLIと同じロジック(`svtracker.app.MonitorApp` など)を呼んでいるだけなので、
+挙動や設定ファイルの場所は完全に共通です。
+
+### コマンドラインが必要な場合
+
+自動化やデバッグのために、GUIとは別に `svtracker`(CLI, コンソール表示あり)コマンドも
+同梱されています。以下は主にそちらの説明です。
+
+## 使い方(CLIコマンド版)
 
 ### 1. カードマスタDBを用意する
 
@@ -112,21 +140,24 @@ svtracker stats ロイヤル
 
 ## Windowsインストーラ
 
-Python環境を用意しなくても使えるように、PyInstallerでの単体exe化とInno Setupでの
-インストーラ作成に対応しています。実際のビルドはGitHub Actions (`windows-latest`
-ランナー)で行われるため、この開発環境(Linuxサンドボックス)では作れませんが、
-CIで実機Windows相当の環境を使ってビルド・動作確認しています。
+Python環境を用意しなくても使えるように、PyInstallerでの単体exe化(GUI版・CLI版の両方)と
+Inno Setupでのインストーラ作成に対応しています。実際のビルドはGitHub Actions
+(`windows-latest`ランナー)で行われるため、この開発環境(Linuxサンドボックス)では
+作れませんが、CIで実機Windows相当の環境を使ってビルド・GUI起動・動作確認しています。
 
 - 入手方法: GitHubリポジトリの Actions タブ → `Build Windows Installer` ワークフロー
   → 対象の実行 → Artifacts から `svtracker-windows-installer` (インストーラ) または
-  `svtracker-exe` (単体exe) をダウンロード。タグ `v*` をpushすると自動でも走ります。
-- インストーラは `svtracker.exe` と `config/*.example.json`、READMEを
+  `svtracker-exe` (GUI版 `svtracker-gui.exe` とCLI版 `svtracker.exe` の単体exe2つ) を
+  ダウンロード。タグ `v*` をpushすると自動でも走ります。
+- インストーラは `svtracker-gui.exe`(GUI・デスクトップ/スタートメニューのメインアイコン)、
+  `svtracker.exe`(CLI・上級者向けの別ショートカット)、`config/*.example.json`、READMEを
   `Program Files\svtracker` 配下に配置します。`data/`, `config/settings.json`,
-  `config/regions.json` は README の手順に従って別途用意してください。
+  `config/regions.json` はGUIの「キャリブレーション」タブから作成・保存できます。
 - **OCR(ターン/PP/ライフ読み取り)を使うには、インストーラとは別に
   [Tesseract OCR本体](https://github.com/tesseract-ocr/tesseract) のインストールが必要です**
   (バイナリはライセンス・サイズの都合でインストーラに同梱していません)。
-- ローカルでビルドする場合は `packaging/entrypoint.py` を PyInstaller で、
+- ローカルでビルドする場合は `packaging/entrypoint.py`(CLI)・
+  `packaging/gui_entrypoint.py`(GUI)をそれぞれ PyInstaller で、
   `packaging/installer.iss` を Inno Setup (`ISCC.exe`) でビルドしてください。
   具体的なコマンドは `.github/workflows/build-windows-installer.yml` を参照してください。
 
