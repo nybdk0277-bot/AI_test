@@ -1,10 +1,10 @@
-"""カードマスタ(名前・コスト・クラン・画像)の取得.
+"""カードマスタ(名前・コスト・クラス・画像)の取得.
 
 2種類の取得経路を用意している。
 
 1. ``fetch_from_official_site`` : 公式サイト (shadowverse-wb.com) が
    カード一覧ページを描画するために内部で呼んでいるJSON API
-   (``/web/CardList/cardList``) を直接叛いて収集する。
+   (``/web/CardList/cardList``) を直接叩いて収集する。
    カード一覧ページ自体はJavaScriptで描画されるSPAで、素のHTMLには
    カード情報が含まれていないため、静的HTML解析ではなくこのAPIを使う。
    レスポンス形式が変わった場合は本ファイルのフィールド名・マッピングを
@@ -12,7 +12,7 @@
 
 2. ``import_from_local`` : 既に手元にある「カード画像フォルダ + メタ情報CSV」
    から DB を構築する。API経路が使えない/使いたくない場合の
-   確実な代替手段。CSVフォーマットはREADMEを参照。
+   確実な代替手段。CSVフォーマットは README を参照。
 """
 from __future__ import annotations
 
@@ -31,8 +31,9 @@ from svtracker.cards.models import Card
 
 logger = logging.getLogger(__name__)
 
-# --- 公式サイト内部API設定（レスポンス形式が変わったら要調整）----------------------------
+# --- 公式サイト内部API設定（レスポンス形式が変わったら要調整）----------------
 CARD_LIST_API_PATH = "/web/CardList/cardList"
+CARD_LIST_PAGE_PATH = "/ja/deck/cardslist/"
 CARD_IMAGE_URL_TMPL = "{base}/uploads/card_image/ja/card/{image_hash}.png"
 REQUEST_HEADERS = {
     "User-Agent": (
@@ -41,6 +42,16 @@ REQUEST_HEADERS = {
     ),
     "Accept": "application/json, text/plain, */*",
     "X-Requested-With": "XMLHttpRequest",
+}
+# 画像(/uploads/card_image/...)はJSON APIとは別にホットリンク対策(Referer必須)が
+# かかっているらしく、REQUEST_HEADERSのままだと403になる。Refererとブラウザの画像
+# フェッチっぽいヘッダーを足したものを別途用意する。
+IMAGE_REQUEST_HEADERS = {
+    "User-Agent": REQUEST_HEADERS["User-Agent"],
+    "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+    "Sec-Fetch-Dest": "image",
+    "Sec-Fetch-Mode": "no-cors",
+    "Sec-Fetch-Site": "same-origin",
 }
 REQUEST_INTERVAL_SEC = 1.0  # サイトに負荷をかけないよう間隔を空ける
 MAX_PAGES_SAFETY_LIMIT = 1000  # count取得に失敗した場合の無限ループ防止
@@ -155,8 +166,9 @@ def _download_card_image(
     if dest.exists():
         return dest
     url = CARD_IMAGE_URL_TMPL.format(base=base_url.rstrip("/"), image_hash=image_hash)
+    headers = {**IMAGE_REQUEST_HEADERS, "Referer": f"{base_url.rstrip('/')}{CARD_LIST_PAGE_PATH}"}
     try:
-        resp = session.get(url, headers=REQUEST_HEADERS, timeout=15)
+        resp = session.get(url, headers=headers, timeout=15)
         resp.raise_for_status()
     except requests.RequestException as exc:
         logger.warning("failed to download image for card %s: %s", card_id, exc)
