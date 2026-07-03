@@ -37,9 +37,8 @@ class Settings:
     opponent_turn_color: tuple[int, int, int] = (200, 30, 30)
     active_player_color_max_distance: float = 60.0
 
-    # 公式サイト (カード取得元)。サイト構造が変わったら要調整。
+    # 公式サイト (カード取得元)。内部API (/web/CardList/cardList) を利用する。
     official_site_base: str = "https://shadowverse-wb.com"
-    official_cardlist_path: str = "/ja/deck/cardslist/"
 
     @classmethod
     def load(cls, path: Path | None = None) -> "Settings":
