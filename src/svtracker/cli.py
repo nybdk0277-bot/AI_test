@@ -10,6 +10,7 @@ from svtracker.config import Settings
 
 
 def _cmd_fetch_cards(args: argparse.Namespace) -> None:
+    from svtracker.cards.card_database import CardDatabase
     from svtracker.cards.card_fetcher import fetch_from_official_site
 
     settings = Settings.load()
@@ -19,16 +20,25 @@ def _cmd_fetch_cards(args: argparse.Namespace) -> None:
         images_dir=settings.cards_dir,
         hash_size=settings.hash_size,
     )
+    if args.merge and settings.card_db_path.exists():
+        existing = CardDatabase.load(settings.card_db_path)
+        existing.merge(db)
+        db = existing
     db.save(settings.card_db_path)
     print(f"{len(db)} 枚のカードを取得し {settings.card_db_path} に保存しました。")
 
 
 def _cmd_import_cards(args: argparse.Namespace) -> None:
+    from svtracker.cards.card_database import CardDatabase
     from svtracker.cards.card_fetcher import import_from_local
 
     settings = Settings.load()
     settings.ensure_dirs()
     db = import_from_local(Path(args.images_dir), Path(args.metadata_csv), hash_size=settings.hash_size)
+    if args.merge and settings.card_db_path.exists():
+        existing = CardDatabase.load(settings.card_db_path)
+        existing.merge(db)
+        db = existing
     db.save(settings.card_db_path)
     print(f"{len(db)} 枚のカードをローカルから取り込み {settings.card_db_path} に保存しました。")
 
@@ -103,11 +113,21 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_fetch = sub.add_parser("fetch-cards", help="公式サイトからカードマスタを取得する")
+    p_fetch.add_argument(
+        "--merge", action="store_true",
+        help="既存のカードDBに追加する形で保存する(上書きしない)。"
+        "`import-cards --merge` で追加したトークンカードなどを消さずに公式データだけ更新したい場合に指定",
+    )
     p_fetch.set_defaults(func=_cmd_fetch_cards)
 
     p_import = sub.add_parser("import-cards", help="ローカルの画像+CSVからカードマスタを取り込む")
     p_import.add_argument("images_dir")
     p_import.add_argument("metadata_csv")
+    p_import.add_argument(
+        "--merge", action="store_true",
+        help="既存のカードDBに追加する形で保存する(上書きしない)。公式サイトの一覧に載らない"
+        "トークンカードなどを、`fetch-cards` で取得済みのカードDBに追加したい場合に指定",
+    )
     p_import.set_defaults(func=_cmd_import_cards)
 
     p_shot = sub.add_parser("screenshot", help="キャリブレーション用にスクリーンショットを1枚保存する")

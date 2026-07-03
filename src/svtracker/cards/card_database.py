@@ -20,6 +20,16 @@ class CardDatabase:
     def add(self, card: Card) -> None:
         self._by_id[card.card_id] = card
 
+    def merge(self, other: "CardDatabase") -> None:
+        """otherの全カードを追加する(card_id が重複する場合はotherの内容で上書き).
+
+        トークンカードのように公式サイトのカード一覧に載らないカードを、
+        `import-cards` で手動追加した分と `fetch-cards` で取得した分を
+        両方カードDBに残したい場合に使う。
+        """
+        for card in other.all():
+            self.add(card)
+
     def get(self, card_id: str) -> Optional[Card]:
         return self._by_id.get(str(card_id))
 
