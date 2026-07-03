@@ -131,3 +131,32 @@ def test_match_tracker_set_extra_pp_and_ep():
     tracker.set_ep(2, 1)
     assert tracker.state.self_ep == 2
     assert tracker.state.opponent_ep == 1
+
+
+def test_infer_clan_ignores_neutral_and_sets_once():
+    tracker = MatchTracker()
+
+    assert tracker.infer_clan(Player.SELF, "ニュートラル") is False
+    assert tracker.state.self_clan == ""
+
+    assert tracker.infer_clan(Player.SELF, "エルフ") is True
+    assert tracker.state.self_clan == "エルフ"
+
+    # 一度判明したら別のクラスが来ても上書きしない(誤認識対策)
+    assert tracker.infer_clan(Player.SELF, "ロイヤル") is False
+    assert tracker.state.self_clan == "エルフ"
+
+
+def test_infer_clan_does_not_overwrite_manually_provided_clan():
+    tracker = MatchTracker(self_clan="ドラゴン")
+
+    assert tracker.infer_clan(Player.SELF, "ウィッチ") is False
+    assert tracker.state.self_clan == "ドラゴン"
+
+
+def test_infer_clan_tracks_self_and_opponent_independently():
+    tracker = MatchTracker()
+
+    assert tracker.infer_clan(Player.OPPONENT, "ビショップ") is True
+    assert tracker.state.opponent_clan == "ビショップ"
+    assert tracker.state.self_clan == ""

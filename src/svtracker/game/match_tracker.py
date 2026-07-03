@@ -88,6 +88,25 @@ class MatchTracker:
         self.state.self_ep = self_ep
         self.state.opponent_ep = opponent_ep
 
+    def infer_clan(self, player: Player, clan: str) -> bool:
+        """認識できたカードの実際のクラスから、そのプレイヤーのクラスを推測する.
+
+        ニュートラルはどのクラスのデッキにも入るため判定材料にならず無視する。
+        デッキは単一クラス固定なので、一度判明したら上書きしない。
+        クラスが新たに判明した場合のみ True を返す(呼び出し側でログ/DB更新の
+        トリガーに使う)。
+        """
+        if not clan or clan == "ニュートラル":
+            return False
+        current = self.state.self_clan if player == Player.SELF else self.state.opponent_clan
+        if current:
+            return False
+        if player == Player.SELF:
+            self.state.self_clan = clan
+        else:
+            self.state.opponent_clan = clan
+        return True
+
     def set_life(self, self_life: int, opponent_life: int) -> None:
         self.state.self_life = self_life
         self.state.opponent_life = opponent_life

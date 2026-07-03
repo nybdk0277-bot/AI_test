@@ -155,6 +155,27 @@ class MonitorApp:
                 opponent_life if opponent_life is not None else self.tracker.state.opponent_life,
             )
 
+    def _infer_clans(self, player: Player, card_ids: list[Optional[str]]) -> None:
+        """認識できたカード(ニュートラル以外)からそのプレイヤーのクラスを自動判別する.
+
+        デッキは単一クラス固定なので、非ニュートラルカードが1枚でも認識できれば
+        判別できる。既に判明済み(手動入力含む)なら上書きしない。
+        """
+        for card_id in card_ids:
+            if not card_id:
+                continue
+            card = self.database.get(card_id)
+            if card is None:
+                continue
+            if self.tracker.infer_clan(player, card.clan):
+                logger.info("%s のクラスを自動判別しました: %s", player.value, card.clan)
+                if self.match_log is not None and self.match_id is not None:
+                    if player == Player.SELF:
+                        self.match_log.update_match_clans(self.match_id, self_clan=card.clan)
+                    else:
+                        self.match_log.update_match_clans(self.match_id, opponent_clan=card.clan)
+                return
+
     def step(self) -> None:
         """1フレーム分の処理: キャプチャ→認識→差分検出→記録→予測/アドバイス表示."""
         if self.regions is None:
@@ -169,6 +190,9 @@ class MonitorApp:
         self_hand_ids = self._recognize_slots(frame, "self_hand")
         self_board_ids = self._recognize_slots(frame, "self_board")
         opponent_board_ids = self._recognize_slots(frame, "opponent_board")
+
+        self._infer_clans(Player.SELF, [*self_hand_ids, *self_board_ids])
+        self._infer_clans(Player.OPPONENT, opponent_board_ids)
 
         self.tracker.set_self_board(self._build_board_units(self_board_ids))
         self.tracker.set_opponent_board(self._build_board_units(opponent_board_ids))

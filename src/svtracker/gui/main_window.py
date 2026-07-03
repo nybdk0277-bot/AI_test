@@ -512,10 +512,10 @@ class MonitorTab(ttk.Frame):
 
         form = ttk.Frame(self)
         form.pack(fill="x")
-        ttk.Label(form, text="自分のクラス:").grid(row=0, column=0, sticky="w")
+        ttk.Label(form, text="自分のクラス(空欄で自動判別):").grid(row=0, column=0, sticky="w")
         self.self_clan_var = tk.StringVar()
         ttk.Entry(form, textvariable=self.self_clan_var, width=16).grid(row=0, column=1, padx=4)
-        ttk.Label(form, text="相手のクラス:").grid(row=0, column=2, sticky="w", padx=(12, 0))
+        ttk.Label(form, text="相手のクラス(空欄で自動判別):").grid(row=0, column=2, sticky="w", padx=(12, 0))
         self.opponent_clan_var = tk.StringVar()
         ttk.Entry(form, textvariable=self.opponent_clan_var, width=16).grid(row=0, column=3, padx=4)
 
@@ -526,9 +526,23 @@ class MonitorTab(ttk.Frame):
 
         self.status_var = tk.StringVar(value="停止中")
         ttk.Label(self, textvariable=self.status_var, foreground="#666").pack(anchor="w", pady=(6, 0))
+        self.clan_status_var = tk.StringVar(value="")
+        ttk.Label(self, textvariable=self.clan_status_var, foreground="#666").pack(anchor="w")
+        self.after(500, self._poll_clan_status)
 
         self.log_text = tk.Text(self, height=30, state="disabled", bg="#111111", fg="#dddddd", wrap="word")
         self.log_text.pack(fill="both", expand=True, pady=(8, 0))
+
+    def _poll_clan_status(self) -> None:
+        monitor_app = self.app.monitor_app
+        if monitor_app is not None:
+            state = monitor_app.tracker.state
+            self_clan = state.self_clan or "判別中..."
+            opponent_clan = state.opponent_clan or "判別中..."
+            self.clan_status_var.set(f"検出中のクラス: 自分={self_clan} / 相手={opponent_clan}")
+        else:
+            self.clan_status_var.set("")
+        self.after(500, self._poll_clan_status)
 
     def append_log(self, lines: list[str]) -> None:
         self.log_text.config(state="normal")
