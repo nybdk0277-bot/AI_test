@@ -42,6 +42,7 @@ REGION_COLORS = {
     "opponent_life": "#ff5566",
 }
 REGION_ORDER = RECT_LIST_REGIONS + RECT_SINGLE_REGIONS + POINT_REGIONS
+DEFAULT_SLOT_COUNT = {"self_hand": 9, "self_board": 7, "opponent_board": 7}
 
 
 class App(tk.Tk):
@@ -267,6 +268,21 @@ class CalibrationTab(ttk.Frame):
         ttk.Button(right, text="最後のスロットを削除", command=self._remove_last_slot).pack(fill="x", pady=2)
         ttk.Button(right, text="この領域をクリア", command=self._clear_region).pack(fill="x", pady=2)
 
+        ttk.Separator(right).pack(fill="x", pady=6)
+        ttk.Label(right, text="等間隔の自動補完(複数枠の領域のみ)", font=("", 10, "bold")).pack(anchor="w")
+        ttk.Label(
+            right,
+            text="先頭2〜3枚をドラッグしたあと枚数を指定して押すと、間隔を推定して残りを自動生成します。",
+            wraplength=230,
+            foreground="#888",
+        ).pack(anchor="w")
+        count_row = ttk.Frame(right)
+        count_row.pack(fill="x", pady=2)
+        ttk.Label(count_row, text="枚数:").pack(side="left")
+        self.auto_fill_count_var = tk.StringVar(value=str(DEFAULT_SLOT_COUNT.get(self.current_region, 9)))
+        ttk.Entry(count_row, textvariable=self.auto_fill_count_var, width=6).pack(side="left", padx=4)
+        ttk.Button(right, text="等間隔で自動補完", command=self._auto_fill_row).pack(fill="x", pady=2)
+
         ttk.Separator(right).pack(fill="x", pady=10)
         ttk.Label(right, text="手番判定の基準色", font=("", 10, "bold")).pack(anchor="w")
         ttk.Label(
@@ -361,6 +377,37 @@ class CalibrationTab(ttk.Frame):
         self.current_region = REGION_ORDER[index]
         self._apply_mode_for_region(self.current_region)
         self._update_slot_count()
+        self.auto_fill_count_var.set(str(DEFAULT_SLOT_COUNT.get(self.current_region, 9)))
+
+    def _auto_fill_row(self) -> None:
+        name = self.current_region
+        if name not in RECT_LIST_REGIONS:
+            messagebox.showinfo("対象外", "自動補完は手札・盤面など複数枠の領域でのみ使えます。")
+            return
+        try:
+            count = int(self.auto_fill_count_var.get())
+        except ValueError:
+            messagebox.showwarning("入力エラー", "枚数は整数で指定してください。")
+            return
+
+        existing = self.app.regions.slots(name)
+        if len(existing) < 2:
+            messagebox.showwarning(
+                "サンプル不足", "先に先頭2枚以上をドラッグして矩形を指定してから自動補完してください。"
+            )
+            return
+
+        from svtracker.capture.auto_layout import interpolate_row
+
+        try:
+            generated = interpolate_row(existing, count)
+        except ValueError as exc:
+            messagebox.showwarning("入力エラー", str(exc))
+            return
+
+        self.app.regions.set_slots(name, generated)
+        self._update_slot_count()
+        self._refresh_overlays()
 
     def _update_slot_count(self) -> None:
         name = self.current_region
