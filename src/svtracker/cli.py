@@ -112,7 +112,17 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _ensure_utf8_streams() -> None:
+    """Windowsの既定コンソールエンコーディング(cp1252等)では、ヘルプ/ログの日本語文字列を
+    出力しようとした際に UnicodeEncodeError でクラッシュすることがあるため、
+    可能なら標準出力/標準エラーをUTF-8に強制する."""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def main(argv: list[str] | None = None) -> int:
+    _ensure_utf8_streams()
     parser = build_parser()
     args = parser.parse_args(argv)
     logging.basicConfig(
