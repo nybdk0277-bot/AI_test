@@ -150,7 +150,6 @@ class CardDbTab(ttk.Frame):
 
             db = fetch_from_official_site(
                 base_url=self.app.settings.official_site_base,
-                list_path=self.app.settings.official_cardlist_path,
                 images_dir=self.app.settings.cards_dir,
                 hash_size=self.app.settings.hash_size,
             )

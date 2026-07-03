@@ -16,9 +16,7 @@ def _cmd_fetch_cards(args: argparse.Namespace) -> None:
     settings.ensure_dirs()
     db = fetch_from_official_site(
         base_url=settings.official_site_base,
-        list_path=settings.official_cardlist_path,
         images_dir=settings.cards_dir,
-        max_pages=args.max_pages,
         hash_size=settings.hash_size,
     )
     db.save(settings.card_db_path)
@@ -87,7 +85,6 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_fetch = sub.add_parser("fetch-cards", help="公式サイトからカードマスタを取得する")
-    p_fetch.add_argument("--max-pages", type=int, default=50)
     p_fetch.set_defaults(func=_cmd_fetch_cards)
 
     p_import = sub.add_parser("import-cards", help="ローカルの画像+CSVからカードマスタを取り込む")

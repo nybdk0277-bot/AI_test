@@ -1,18 +1,18 @@
-"""カードマスタ(名前・コスト・クラス・画像)の取得.
+"""カードマスタ(名前・コスト・クラン・画像)の取得.
 
 2種類の取得経路を用意している。
 
-1. ``fetch_from_official_site`` : 公式サイト (shadowverse-wb.com) の
-   カード一覧ページを走査してカード情報・画像URLを収集する。
-   サイトのHTML構造が変わると動かなくなる可能性があるため、
-   CSSセレクタは本ファイル冒頭の定数にまとめてあり、調整しやすくしている。
-   このプロジェクトの開発環境は一般のWebサイトへの直接アクセスが
-   できないため、ここでの実装は未検証。実際に使う際は
-   ``--dry-run`` 等で少数ページ取得して構造を確認すること。
+1. ``fetch_from_official_site`` : 公式サイト (shadowverse-wb.com) が
+   カード一覧ページを描画するために内部で呼んでいるJSON API
+   (``/web/CardList/cardList``) を直接叛いて収集する。
+   カード一覧ページ自体はJavaScriptで描画されるSPAで、素のHTMLには
+   カード情報が含まれていないため、静的HTML解析ではなくこのAPIを使う。
+   レスポンス形式が変わった場合は本ファイルのフィールド名・マッピングを
+   実際のレスポンスに合わせて調整すること。
 
 2. ``import_from_local`` : 既に手元にある「カード画像フォルダ + メタ情報CSV」
-   から DB を構築する。スクレイパーが使えない/使いたくない場合の
-   確実な代替手段。CSVフォーマットは README を参照。
+   から DB を構築する。API経路が使えない/使いたくない場合の
+   確実な代替手段。CSVフォーマットはREADMEを参照。
 """
 from __future__ import annotations
 
@@ -20,10 +20,9 @@ import csv
 import logging
 import time
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Optional
 
 import requests
-from bs4 import BeautifulSoup
 from PIL import Image
 
 from svtracker.cards.card_database import CardDatabase
@@ -32,92 +31,108 @@ from svtracker.cards.models import Card
 
 logger = logging.getLogger(__name__)
 
-# --- 公式サイト用セレクタ設定（サイト変更時はここを調整）----------------
-CARD_LIST_URL_TMPL = "{base}{path}?page={page}"
-CARD_ITEM_SELECTOR = "li.p-cardslist-item, div.card-list-item"
-CARD_NAME_SELECTOR = ".card-name, .p-cardslist-item__name"
-CARD_IMAGE_SELECTOR = "img"
-CARD_ID_ATTR = "data-card-id"
-CARD_COST_SELECTOR = ".cost, .p-cardslist-item__cost"
-CARD_CLAN_ATTR = "data-clan"
-CARD_TYPE_ATTR = "data-type"
-CARD_RARITY_ATTR = "data-rarity"
-CARD_ATK_ATTR = "data-atk"
-CARD_HP_ATTR = "data-life"
+# --- 公式サイト内部API設定（レスポンス形式が変わったら要調整）----------------------------
+CARD_LIST_API_PATH = "/web/CardList/cardList"
+CARD_IMAGE_URL_TMPL = "{base}/uploads/card_image/ja/card/{image_hash}.png"
 REQUEST_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
-    )
+    ),
+    "Accept": "application/json, text/plain, */*",
+    "X-Requested-With": "XMLHttpRequest",
 }
 REQUEST_INTERVAL_SEC = 1.0  # サイトに負荷をかけないよう間隔を空ける
+MAX_PAGES_SAFETY_LIMIT = 1000  # count取得に失敗した場合の無限ループ防止
+
+# 公式サイトのカード一覧の検索条件チェックボックス値と対応(HTML調査済み)。
+CLASS_NAMES = {
+    0: "ニュートラル",
+    1: "エルフ",
+    2: "ロイヤル",
+    3: "ウィッチ",
+    4: "ドラゴン",
+    5: "ナイトメア",
+    6: "ビショップ",
+    7: "ネメシス",
+}
+RARITY_NAMES = {1: "ブロンズ", 2: "シルバー", 3: "ゴールド", 4: "レジェンド"}
+# 確認できているのは 1=フォロワー/2=スペル/3=アミュレット のみ。
+# 未知の値は "type_N" のまま保持する(マッチング精度には影響しない)。
+CARD_TYPE_NAMES = {1: "フォロワー", 2: "スペル", 3: "アミュレット"}
 
 
 def fetch_from_official_site(
     base_url: str,
-    list_path: str,
     images_dir: Path,
-    max_pages: int = 50,
     hash_size: int = 16,
     session: Optional[requests.Session] = None,
 ) -> CardDatabase:
-    """公式カード一覧ページを走査してCardDatabaseを構築する.
+    """公式サイトの内部API からカード一覧・画像URLを取得してCardDatabaseを構築する.
 
-    ページネーションが尽きた（カードが1件も見つからない）時点で終了する。
+    ``data.count`` (総件数) に達するまで ``offset`` を進めながらページングする。
     """
     session = session or requests.Session()
     images_dir.mkdir(parents=True, exist_ok=True)
     db = CardDatabase()
 
-    for page in range(1, max_pages + 1):
-        url = CARD_LIST_URL_TMPL.format(base=base_url, path=list_path, page=page)
-        logger.info("fetching card list page %s: %s", page, url)
-        resp = session.get(url, headers=REQUEST_HEADERS, timeout=15)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
-        items = soup.select(CARD_ITEM_SELECTOR)
-        if not items:
-            logger.info("no more cards found, stopping at page %s", page)
+    offset = 0
+    total: Optional[int] = None
+    for _ in range(MAX_PAGES_SAFETY_LIMIT):
+        if total is not None and offset >= total:
             break
 
-        for item in items:
-            card = _parse_card_item(item, base_url)
+        url = f"{base_url.rstrip('/')}{CARD_LIST_API_PATH}"
+        params = {
+            "offset": offset,
+            "class": "0,1,2,3,4,5,6,7",
+            "cost": "0,1,2,3,4,5,6,7,8,9,10",
+        }
+        logger.info("fetching card list: offset=%s", offset)
+        resp = session.get(url, params=params, headers=REQUEST_HEADERS, timeout=15)
+        resp.raise_for_status()
+        payload = resp.json()
+        data = payload.get("data", {})
+        total = data.get("count", 0)
+        page_ids = data.get("sort_card_id_list", [])
+        card_details = data.get("card_details", {})
+        if not page_ids:
+            break
+
+        for card_id in page_ids:
+            detail = card_details.get(str(card_id))
+            if detail is None:
+                continue
+            common = detail.get("common", {})
+            card = _parse_card_common(common)
             if card is None:
                 continue
-            image_path = _download_card_image(item, base_url, images_dir, card.card_id, session)
+            image_path = _download_card_image(
+                base_url, images_dir, card.card_id, common.get("card_image_hash"), session
+            )
             if image_path is not None:
                 card.image_path = str(image_path)
                 with Image.open(image_path) as img:
                     card.phash = compute_phash_hex(img, hash_size=hash_size)
             db.add(card)
 
+        offset += len(page_ids)
         time.sleep(REQUEST_INTERVAL_SEC)
 
     return db
 
 
-def _parse_card_item(item, base_url: str) -> Optional[Card]:
-    card_id = item.get(CARD_ID_ATTR)
-    if not card_id:
-        # 属性で取れない場合、詳細ページへのリンクの card_id= クエリから拾う
-        link = item.select_one("a[href*='card_id=']")
-        if link and "card_id=" in link.get("href", ""):
-            card_id = link["href"].split("card_id=")[-1].split("&")[0]
-    if not card_id:
-        logger.debug("skip item without card_id: %s", item)
+def _parse_card_common(common: dict) -> Optional[Card]:
+    card_id = common.get("card_id")
+    if card_id is None:
         return None
 
-    name_el = item.select_one(CARD_NAME_SELECTOR)
-    name = name_el.get_text(strip=True) if name_el else f"card_{card_id}"
-
-    cost_el = item.select_one(CARD_COST_SELECTOR)
-    cost = _safe_int(cost_el.get_text(strip=True)) if cost_el else 0
-
-    clan = item.get(CARD_CLAN_ATTR, "") or ""
-    card_type = item.get(CARD_TYPE_ATTR, "") or ""
-    rarity = item.get(CARD_RARITY_ATTR, "") or ""
-    atk_raw = item.get(CARD_ATK_ATTR)
-    hp_raw = item.get(CARD_HP_ATTR)
+    name = common.get("name") or f"card_{card_id}"
+    clan = CLASS_NAMES.get(common.get("class"), "")
+    cost = int(common.get("cost", 0))
+    type_code = common.get("type")
+    card_type = CARD_TYPE_NAMES.get(type_code, f"type_{type_code}")
+    rarity = RARITY_NAMES.get(common.get("rarity"), "")
 
     return Card(
         card_id=str(card_id),
@@ -126,39 +141,28 @@ def _parse_card_item(item, base_url: str) -> Optional[Card]:
         cost=cost,
         card_type=card_type,
         rarity=rarity,
-        base_atk=_safe_int(atk_raw) if atk_raw else None,
-        base_hp=_safe_int(hp_raw) if hp_raw else None,
+        base_atk=common.get("atk"),
+        base_hp=common.get("life"),
     )
 
 
-def _download_card_image(item, base_url: str, images_dir: Path, card_id: str, session: requests.Session) -> Optional[Path]:
-    img_el = item.select_one(CARD_IMAGE_SELECTOR)
-    if img_el is None:
+def _download_card_image(
+    base_url: str, images_dir: Path, card_id: str, image_hash: Optional[str], session: requests.Session
+) -> Optional[Path]:
+    if not image_hash:
         return None
-    src = img_el.get("src") or img_el.get("data-src")
-    if not src:
-        return None
-    if src.startswith("//"):
-        src = "https:" + src
-    elif src.startswith("/"):
-        src = base_url.rstrip("/") + src
-
     dest = images_dir / f"{card_id}.png"
     if dest.exists():
         return dest
+    url = CARD_IMAGE_URL_TMPL.format(base=base_url.rstrip("/"), image_hash=image_hash)
     try:
-        resp = session.get(src, headers=REQUEST_HEADERS, timeout=15)
+        resp = session.get(url, headers=REQUEST_HEADERS, timeout=15)
         resp.raise_for_status()
     except requests.RequestException as exc:
         logger.warning("failed to download image for card %s: %s", card_id, exc)
         return None
     dest.write_bytes(resp.content)
     return dest
-
-
-def _safe_int(text: str) -> int:
-    digits = "".join(ch for ch in text if ch.isdigit())
-    return int(digits) if digits else 0
 
 
 # --- ローカルインポート経路 -------------------------------------------------
