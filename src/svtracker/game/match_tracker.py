@@ -38,6 +38,19 @@ class MatchTracker:
         self.state.turn += 1
         self.state.active_player = active_player
 
+    def sync_turn(self, observed_turn: int, active_player: Optional[Player] = None) -> bool:
+        """OCR等で読み取った実際のターン数と状態を同期する。
+
+        フレームごとに呼ばれる想定なので、値が変化した時だけ更新し、
+        変化したかどうかを返す(呼び出し側はTrueの時だけターン変化イベントを扱えばよい)。
+        """
+        changed = observed_turn != self.state.turn
+        if changed:
+            self.state.turn = observed_turn
+        if active_player is not None:
+            self.state.active_player = active_player
+        return changed
+
     def record_action(self, action: Action) -> None:
         self.actions.append(action)
         if action.player == Player.OPPONENT and action.card_id:

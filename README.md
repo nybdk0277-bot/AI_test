@@ -11,8 +11,13 @@ Shadowverse: Worlds Beyond (Steam版) の対戦画面を監視し、
 
 ## できること / できないこと
 
-- **できる**: カード画像同士の照合(pHash)、対戦ログのSQLite記録、記録に基づく
-  簡易な相手行動予測、盤面状況からのリーサル検出・トレード提案・PP消費提案。
+- **できる**: カード画像同士の照合(pHash)、手札→盤面の差分によるプレイ検出、
+  OCR/ピクセル色判定によるターン数・手番・PP・ライフの読み取り、対戦ログのSQLite記録、
+  記録に基づく簡易な相手行動予測、盤面状況からのリーサル検出・トレード提案・PP消費提案。
+- **精度に限界がある**: 盤面ユニットのATK/HPはカードマスタの基礎値をそのまま使っており、
+  バフ/デバフ・疲労状態(攻撃済みかどうか)・進化状態は画面から読み取っていないため
+  常に「攻撃可能・未進化」扱いになります。より正確にするにはユニット上のATK/HP表示OCRや
+  進化アイコン検出の追加実装が必要です。
 - **できない/未検証**: 本開発環境はGUIもSteamクライアントも無いサンドボックスのため、
   実際のゲーム画面に対する認識精度・キャリブレーションはこの環境では検証できていません。
   実機(Windows + Steam版SVWB)でのキャリブレーションと調整が必須です。
@@ -32,8 +37,10 @@ pip install -e ".[dev,windows,ocr]"
 ```
 
 - `windows` extra: ウィンドウ自動検出 (`pygetwindow`)。Windows環境でのみ有効。
-- `ocr` extra: ターン数/PPなどの文字をOCRで読み取りたい場合 (`pytesseract`)。
-  別途 [Tesseract OCR本体](https://github.com/tesseract-ocr/tesseract) のインストールが必要です。
+- `ocr` extra: ターン数/PP/ライフの文字をOCRで読み取るために**実質必須** (`pytesseract`)。
+  別途 [Tesseract OCR本体](https://github.com/tesseract-ocr/tesseract) のインストールが必要です
+  (Windowsはインストーラでパスを通すか `pytesseract.pytesseract.tesseract_cmd` を設定)。
+  未導入の場合はターン/PP/ライフの自動読み取りが無効になり、ターン数は1のまま進みません。
 
 ## 使い方
 
@@ -69,6 +76,16 @@ svtracker screenshot -o screenshot.png
 `config/regions.example.json` を `config/regions.json` としてコピーし、
 保存した画像を見ながら各カード枠の `[x, y, width, height]` を実際の座標に書き換えてください。
 
+ターン数・PP・ライフの自動読み取りには `turn_indicator` / `self_pp` / `self_life` /
+`opponent_life` の各領域も実際の数字表示部分に合わせてください(OCRなので、余白を含めすぎず
+数字部分だけを囲むと精度が上がります)。
+
+手番判定 (`active_player_pixel`) は数字OCRではなくピクセル色判定です。自分の手番の時と
+相手の手番の時、それぞれのスクリーンショットで手番表示の色が変わるUIパーツ(背景色や
+ハイライトなど)を1点選び、その座標を `active_player_pixel` に、実際の色(RGB)を
+`config/settings.json` の `self_turn_color` / `opponent_turn_color` に設定してください。
+`config/settings.example.json` の値はダミーなので必ず実際の色に置き換える必要があります。
+
 ### 3. 監視を開始する
 
 ```bash
@@ -88,15 +105,17 @@ svtracker stats ロイヤル
 ## 設定ファイル
 
 - `config/settings.json` (`config/settings.example.json` をコピーして作成): キャプチャ間隔、
-  モニタ番号、マッチング閾値など。
+  モニタ番号、マッチング閾値、手番判定用の基準色 (`self_turn_color` / `opponent_turn_color`) など。
 - `config/regions.json` (`config/regions.example.json` をコピーして作成): 手札・盤面などの
-  画面上の矩形領域。**解像度・UIレイアウトごとに調整が必須**です。
+  画面上の矩形領域と、手番判定用の座標 (`active_player_pixel`)。
+  **解像度・UIレイアウトごとに調整が必須**です。
 
 ## 仕組みの概要
 
 ```
 画面キャプチャ(mss)
    -> 領域切り出し(config/regions.json)
+   -> ターン数/手番/PP/ライフを読み取り(capture/ocr_reader.py: OCR + ピクセル色判定)
    -> カード照合(pHashで公式カード画像DBと比較, cards/card_matcher.py)
    -> 手札/盤面の差分からプレイ検出(game/event_detector.py)
    -> 対戦状態を記録(game/match_tracker.py) + SQLiteに永続化(storage/match_log.py)

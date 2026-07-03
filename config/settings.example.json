@@ -3,5 +3,8 @@
   "window_title_hint": "Shadowverse",
   "monitor_index": 1,
   "hash_size": 16,
-  "match_max_distance": 14
+  "match_max_distance": 14,
+  "self_turn_color": [255, 215, 0],
+  "opponent_turn_color": [200, 30, 30],
+  "active_player_color_max_distance": 60.0
 }

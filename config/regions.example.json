@@ -1,5 +1,5 @@
 {
-  "_comment": "画面解像度ごとにキャリブレーションして config/regions.json として保存してください。座標はキャプチャした画面(ウィンドウ)の左上を原点とするピクセル値 [x, y, width, height] です。 `svtracker screenshot` で保存した画像を画像ビューアで開き、各カード枠の座標を調べて書き換えてください。",
+  "_comment": "画面解像度ごとにキャリブレーションして config/regions.json として保存してください。座標はキャプチャした画面(ウィンドウ)の左上を原点とするピクセル値 [x, y, width, height] です。 `svtracker screenshot` で保存した画像を画像ビューアで開き、各カード枠の座標を調べて書き換えてください。active_player_pixel は [x, y] の1点で、手番によって色が変わるUIパーツ(ターン表示の背景色など)を指定し、その実際の色を config/settings.json の self_turn_color / opponent_turn_color にスポイトして設定してください。",
   "resolution": [1920, 1080],
   "self_hand": [
     [660, 900, 90, 130],
@@ -33,5 +33,6 @@
   "turn_indicator": [880, 20, 160, 50],
   "self_pp": [1700, 950, 120, 40],
   "self_life": [1750, 1000, 80, 40],
-  "opponent_life": [1750, 40, 80, 40]
+  "opponent_life": [1750, 40, 80, 40],
+  "active_player_pixel": [960, 540]
 }

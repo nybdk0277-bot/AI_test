@@ -31,6 +31,12 @@ class Settings:
     hash_size: int = 16
     match_max_distance: int = 14  # これを超えたら「未検出」とみなす
 
+    # 手番判定用の基準色(RGB)。config/regions.json の active_player_pixel の座標を
+    # 自分/相手の手番それぞれでスポイトした実際の色に置き換えること。ここではダミー値。
+    self_turn_color: tuple[int, int, int] = (255, 215, 0)
+    opponent_turn_color: tuple[int, int, int] = (200, 30, 30)
+    active_player_color_max_distance: float = 60.0
+
     # 公式サイト (カード取得元)。サイト構造が変わったら要調整。
     official_site_base: str = "https://shadowverse-wb.com"
     official_cardlist_path: str = "/ja/deck/cardslist/"
@@ -47,6 +53,8 @@ class Settings:
                 current = getattr(settings, key)
                 if isinstance(current, Path):
                     value = Path(value)
+                elif isinstance(current, tuple):
+                    value = tuple(value)
                 setattr(settings, key, value)
         return settings
 

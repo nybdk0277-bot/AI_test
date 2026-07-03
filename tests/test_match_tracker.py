@@ -16,6 +16,24 @@ def test_advance_turn_increments_and_tracks_active_player():
     assert tracker.state.active_player == Player.OPPONENT
 
 
+def test_sync_turn_updates_only_on_change():
+    tracker = MatchTracker()
+
+    changed = tracker.sync_turn(1, Player.SELF)
+    assert changed is True
+    assert tracker.current_turn == 1
+    assert tracker.state.active_player == Player.SELF
+
+    changed = tracker.sync_turn(1, Player.SELF)
+    assert changed is False
+    assert tracker.current_turn == 1
+
+    changed = tracker.sync_turn(2, Player.OPPONENT)
+    assert changed is True
+    assert tracker.current_turn == 2
+    assert tracker.state.active_player == Player.OPPONENT
+
+
 def test_record_action_tracks_opponent_revealed_cards():
     tracker = MatchTracker()
     tracker.record_action(Action(turn=1, player=Player.OPPONENT, action_type=ActionType.PLAY_CARD, card_id="c1"))

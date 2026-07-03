@@ -7,11 +7,13 @@ from typing import Optional
 
 from svtracker.cards.card_database import CardDatabase
 from svtracker.cards.card_matcher import CardMatcher
+from svtracker.cards.models import Card
+from svtracker.capture import ocr_reader
 from svtracker.capture.screen_capture import RegionSet, ScreenCapture
 from svtracker.config import Settings
 from svtracker.game.event_detector import EventDetector
 from svtracker.game.match_tracker import MatchTracker
-from svtracker.game.models import Player
+from svtracker.game.models import BoardUnit, Player
 from svtracker.prediction.advisor import recommend_actions
 from svtracker.prediction.predictor import predict_opponent_next_actions
 from svtracker.storage.match_log import MatchLog
@@ -64,6 +66,71 @@ class MonitorApp:
             results.append(match.card.card_id if match else None)
         return results
 
+    def _build_board_units(self, card_ids: list[Optional[str]]) -> list[BoardUnit]:
+        """認識できたカードIDから盤面ユニットを組み立てる.
+
+        現状は基礎ステータス(カードマスタの base_atk/base_hp)をそのまま使うだけで、
+        バフ/デバフや疲労状態は画面から読み取っていないため反映されない
+        (can_attack は常にTrue、evolved は常にFalse)。より正確にするには
+        UI上のATK/HP表示のOCRや進化アイコン検出が別途必要。
+        """
+        units: list[BoardUnit] = []
+        for card_id in card_ids:
+            if not card_id:
+                continue
+            card: Optional[Card] = self.database.get(card_id)
+            if card is None or card.base_atk is None or card.base_hp is None:
+                continue
+            units.append(BoardUnit(card_id=card.card_id, name=card.name, atk=card.base_atk, hp=card.base_hp))
+        return units
+
+    def _sync_turn_and_active_player(self, frame) -> None:
+        """OCRとピクセル色判定でターン数・手番を読み取り、trackerに反映する."""
+        turn_rect = self.regions.single("turn_indicator")
+        active_player: Optional[Player] = None
+
+        pixel_xy = self.regions.point("active_player_pixel")
+        if pixel_xy is not None:
+            color = ocr_reader.sample_pixel_color(frame, pixel_xy)
+            active_player = ocr_reader.classify_active_player(
+                color,
+                self_color=self.settings.self_turn_color,
+                opponent_color=self.settings.opponent_turn_color,
+                max_distance=self.settings.active_player_color_max_distance,
+            )
+
+        if turn_rect is not None:
+            observed_turn = ocr_reader.read_turn_number(self.regions.crop(frame, turn_rect))
+            if observed_turn is not None:
+                self.tracker.sync_turn(observed_turn, active_player)
+                return
+
+        if active_player is not None:
+            self.tracker.state.active_player = active_player
+
+    def _sync_pp_and_life(self, frame) -> None:
+        pp_rect = self.regions.single("self_pp")
+        if pp_rect is not None:
+            pp = ocr_reader.read_pp(self.regions.crop(frame, pp_rect))
+            if pp is not None:
+                self.tracker.set_pp(*pp)
+
+        self_life_rect = self.regions.single("self_life")
+        opponent_life_rect = self.regions.single("opponent_life")
+        self_life = (
+            ocr_reader.read_life(self.regions.crop(frame, self_life_rect)) if self_life_rect is not None else None
+        )
+        opponent_life = (
+            ocr_reader.read_life(self.regions.crop(frame, opponent_life_rect))
+            if opponent_life_rect is not None
+            else None
+        )
+        if self_life is not None or opponent_life is not None:
+            self.tracker.set_life(
+                self_life if self_life is not None else self.tracker.state.self_life,
+                opponent_life if opponent_life is not None else self.tracker.state.opponent_life,
+            )
+
     def step(self) -> None:
         """1フレーム分の処理: キャプチャ→認識→差分検出→記録→予測/アドバイス表示."""
         if self.regions is None:
@@ -71,9 +138,16 @@ class MonitorApp:
             return
 
         frame = self.capture.grab()
+
+        self._sync_turn_and_active_player(frame)
+        self._sync_pp_and_life(frame)
+
         self_hand_ids = self._recognize_slots(frame, "self_hand")
         self_board_ids = self._recognize_slots(frame, "self_board")
         opponent_board_ids = self._recognize_slots(frame, "opponent_board")
+
+        self.tracker.set_self_board(self._build_board_units(self_board_ids))
+        self.tracker.set_opponent_board(self._build_board_units(opponent_board_ids))
 
         turn = self.tracker.current_turn or 1
         new_actions = self.event_detector.update(turn, self_hand_ids, self_board_ids, opponent_board_ids)

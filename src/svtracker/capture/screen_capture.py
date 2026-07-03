@@ -64,6 +64,14 @@ class RegionSet:
             return None
         return tuple(value)
 
+    def point(self, name: str) -> Optional[tuple[int, int]]:
+        """[x, y] 形式の単一座標(手番判定用ピクセルなど)を返す."""
+        value = self._regions.get(name)
+        if value is None:
+            return None
+        x, y = value
+        return int(x), int(y)
+
     def crop(self, image: Image.Image, rect: tuple[int, int, int, int]) -> Image.Image:
         x, y, w, h = rect
         return image.crop((x, y, x + w, y + h))
