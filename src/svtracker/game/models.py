@@ -12,6 +12,11 @@ class Player(str, Enum):
     OPPONENT = "opponent"
 
 
+class GameFormat(str, Enum):
+    ROTATION = "rotation"
+    UNLIMITED = "unlimited"
+
+
 class ActionType(str, Enum):
     PLAY_CARD = "play_card"
     ATTACK = "attack"

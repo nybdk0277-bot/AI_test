@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field, fields
 from pathlib import Path
+from typing import Optional
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SETTINGS_PATH = REPO_ROOT / "config" / "settings.json"
@@ -39,6 +40,14 @@ class Settings:
 
     # 公式サイト (カード取得元)。内部API (/web/CardList/cardList) を利用する。
     official_site_base: str = "https://shadowverse-wb.com"
+
+    # 対戦形式("unlimited" または "rotation")。相手プレイ予測のカードプール絞り込みに使う。
+    game_format: str = "unlimited"
+    # ローテーションで使えるカードセット(弾)番号のしきい値。この値以上のcard_set_idを
+    # 持つカードのみローテーション対象とみなす。カードセットの区切りはゲーム側の
+    # レギュレーション更新で変わるため、公式サイトの最新情報に合わせて随時更新すること。
+    # None(未設定)の間はローテーションを選んでも絞り込みは行われない(=実質アンリミテッドと同じ)。
+    rotation_min_card_set_id: Optional[int] = None
 
     @classmethod
     def load(cls, path: Path | None = None) -> "Settings":

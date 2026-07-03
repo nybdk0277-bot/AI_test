@@ -144,6 +144,11 @@ def _parse_card_common(common: dict) -> Optional[Card]:
     type_code = common.get("type")
     card_type = CARD_TYPE_NAMES.get(type_code, f"type_{type_code}")
     rarity = RARITY_NAMES.get(common.get("rarity"), "")
+    # card_set_id(カードセット/弾番号、ローテーション判定に使う)というフィールド名は
+    # 未検証の推測。実際のレスポンスで名前が違う/存在しない場合はNoneのままになり、
+    # ローテーション絞り込みでは「対象から除外しない」安全側にフォールバックする。
+    # 実際のフィールド名を確認したら、ここのキー名を実データに合わせて調整すること。
+    card_set_id = common.get("card_set_id")
 
     return Card(
         card_id=str(card_id),
@@ -154,6 +159,7 @@ def _parse_card_common(common: dict) -> Optional[Card]:
         rarity=rarity,
         base_atk=common.get("atk"),
         base_hp=common.get("life"),
+        card_set_id=int(card_set_id) if card_set_id is not None else None,
     )
 
 
@@ -182,8 +188,9 @@ def _download_card_image(
 def import_from_local(images_dir: Path, metadata_csv: Path, hash_size: int = 16) -> CardDatabase:
     """手元のカード画像フォルダ + メタ情報CSVからDBを構築する.
 
-    CSVヘッダ: card_id,name,clan,cost,card_type,rarity,filename[,base_atk,base_hp]
-    filename は images_dir 内の画像ファイル名。
+    CSVヘッダ: card_id,name,clan,cost,card_type,rarity,filename[,base_atk,base_hp,card_set_id]
+    filename は images_dir 内の画像ファイル名。card_set_id はローテーション絞り込みに使う
+    カードセット(弾)番号(省略可、無ければローテーション判定で除外されない)。
     """
     db = CardDatabase()
     with metadata_csv.open(encoding="utf-8-sig", newline="") as f:
@@ -198,6 +205,7 @@ def import_from_local(images_dir: Path, metadata_csv: Path, hash_size: int = 16)
                 rarity=row.get("rarity", ""),
                 base_atk=int(row["base_atk"]) if row.get("base_atk") else None,
                 base_hp=int(row["base_hp"]) if row.get("base_hp") else None,
+                card_set_id=int(row["card_set_id"]) if row.get("card_set_id") else None,
             )
             image_file = images_dir / row["filename"]
             if image_file.exists():

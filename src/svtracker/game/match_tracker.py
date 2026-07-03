@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from svtracker.game.models import Action, ActionType, BoardUnit, Player
+from svtracker.game.models import Action, ActionType, BoardUnit, GameFormat, Player
 
 
 @dataclass
@@ -13,6 +13,7 @@ class MatchState:
     active_player: Optional[Player] = None
     self_clan: str = ""
     opponent_clan: str = ""
+    game_format: GameFormat = GameFormat.UNLIMITED
     self_life: int = 20
     opponent_life: int = 20
     self_pp: int = 0
@@ -29,8 +30,10 @@ class MatchState:
 class MatchTracker:
     """1試合分の状態を管理する。試合終了後は storage.MatchLog に保存する想定."""
 
-    def __init__(self, self_clan: str = "", opponent_clan: str = ""):
-        self.state = MatchState(self_clan=self_clan, opponent_clan=opponent_clan)
+    def __init__(
+        self, self_clan: str = "", opponent_clan: str = "", game_format: GameFormat = GameFormat.UNLIMITED
+    ):
+        self.state = MatchState(self_clan=self_clan, opponent_clan=opponent_clan, game_format=game_format)
         self.actions: list[Action] = []
 
     @property

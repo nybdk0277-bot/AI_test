@@ -13,6 +13,7 @@ from typing import Optional
 from svtracker.cards.card_database import CardDatabase
 from svtracker.cards.models import Card
 from svtracker.game.match_tracker import MatchTracker
+from svtracker.game.models import GameFormat
 from svtracker.storage.match_log import MatchLog
 
 FREQUENCY_WEIGHT = 0.6
@@ -35,6 +36,7 @@ def predict_opponent_next_actions(
     top_k: int = 5,
     opponent_available_pp: Optional[int] = None,
     pp_cap: int = 10,
+    rotation_min_card_set_id: Optional[int] = None,
 ) -> list[PredictedPlay]:
     state = tracker.state
     turn = max(1, tracker.current_turn)
@@ -46,6 +48,7 @@ def predict_opponent_next_actions(
         for c in database.all()
         if c.cost <= available_pp and (not opponent_clan or c.clan in (opponent_clan, "ニュートラル", ""))
     ]
+    candidates = _filter_by_format(candidates, state.game_format, rotation_min_card_set_id)
     if not candidates:
         return []
 
@@ -73,3 +76,16 @@ def predict_opponent_next_actions(
 
     scored.sort(key=lambda p: p.score, reverse=True)
     return scored[:top_k]
+
+
+def _filter_by_format(
+    candidates: list[Card], game_format: GameFormat, rotation_min_card_set_id: Optional[int]
+) -> list[Card]:
+    """ローテーション選択時のみ、しきい値未満のカードセットのカードを候補から除外する.
+
+    アンリミテッド選択時、またはしきい値が未設定の場合は絞り込みを行わない。
+    card_set_id が不明(None)なカードは判定材料が無いため除外せず残す(安全側)。
+    """
+    if game_format != GameFormat.ROTATION or rotation_min_card_set_id is None:
+        return candidates
+    return [c for c in candidates if c.card_set_id is None or c.card_set_id >= rotation_min_card_set_id]

@@ -16,6 +16,7 @@ from typing import Callable, Optional
 from svtracker.capture.screen_capture import POINT_REGIONS, RECT_LIST_REGIONS, RECT_SINGLE_REGIONS, RegionSet
 from svtracker.cards.card_database import CardDatabase
 from svtracker.config import Settings
+from svtracker.game.models import GameFormat
 from svtracker.gui.log_handler import QueueLogHandler
 from svtracker.gui.region_canvas import RegionCanvas
 from svtracker.storage.match_log import MatchLog
@@ -49,6 +50,8 @@ REGION_COLORS = {
 }
 REGION_ORDER = RECT_LIST_REGIONS + RECT_SINGLE_REGIONS + POINT_REGIONS
 DEFAULT_SLOT_COUNT = {"self_hand": 9, "self_board": 7, "opponent_board": 7}
+GAME_FORMAT_LABELS = {"unlimited": "アンリミテッド", "rotation": "ローテーション"}
+GAME_FORMAT_VALUES = {label: value for value, label in GAME_FORMAT_LABELS.items()}
 
 
 class App(tk.Tk):
@@ -524,6 +527,20 @@ class MonitorTab(ttk.Frame):
         self.stop_button = ttk.Button(form, text="停止", command=self._stop, state="disabled")
         self.stop_button.grid(row=0, column=5)
 
+        ttk.Label(form, text="対戦形式:").grid(row=1, column=0, sticky="w", pady=(6, 0))
+        self.format_var = tk.StringVar()
+        self.format_combo = ttk.Combobox(
+            form,
+            textvariable=self.format_var,
+            state="readonly",
+            values=list(GAME_FORMAT_LABELS.values()),
+            width=14,
+        )
+        initial_format = GAME_FORMAT_LABELS.get(app.settings.game_format, GAME_FORMAT_LABELS["unlimited"])
+        self.format_combo.set(initial_format)
+        self.format_combo.grid(row=1, column=1, padx=4, pady=(6, 0), sticky="w")
+        self.format_combo.bind("<<ComboboxSelected>>", self._on_format_selected)
+
         self.status_var = tk.StringVar(value="停止中")
         ttk.Label(self, textvariable=self.status_var, foreground="#666").pack(anchor="w", pady=(6, 0))
         self.clan_status_var = tk.StringVar(value="")
@@ -544,6 +561,10 @@ class MonitorTab(ttk.Frame):
             self.clan_status_var.set("")
         self.after(500, self._poll_clan_status)
 
+    def _on_format_selected(self, _event) -> None:
+        self.app.settings.game_format = GAME_FORMAT_VALUES.get(self.format_var.get(), "unlimited")
+        self.app.settings.save()
+
     def append_log(self, lines: list[str]) -> None:
         self.log_text.config(state="normal")
         for line in lines:
@@ -560,6 +581,7 @@ class MonitorTab(ttk.Frame):
 
         self_clan = self.self_clan_var.get()
         opponent_clan = self.opponent_clan_var.get()
+        game_format = GameFormat(GAME_FORMAT_VALUES.get(self.format_var.get(), "unlimited"))
         self.app.monitor_stop_event.clear()
         self.status_var.set("開始中...")
         self.start_button.config(state="disabled")
@@ -568,7 +590,9 @@ class MonitorTab(ttk.Frame):
             from svtracker.app import MonitorApp
 
             try:
-                monitor_app = MonitorApp(self.app.settings, self_clan=self_clan, opponent_clan=opponent_clan)
+                monitor_app = MonitorApp(
+                    self.app.settings, self_clan=self_clan, opponent_clan=opponent_clan, game_format=game_format
+                )
             except Exception as exc:  # noqa: BLE001
                 logger.exception("監視の開始に失敗しました")
                 self.app.after(0, lambda: self._on_start_failed(exc))

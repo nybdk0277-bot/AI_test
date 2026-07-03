@@ -13,7 +13,7 @@ from svtracker.capture.screen_capture import RegionSet, ScreenCapture
 from svtracker.config import Settings
 from svtracker.game.event_detector import EventDetector
 from svtracker.game.match_tracker import MatchTracker
-from svtracker.game.models import ActionType, BoardUnit, Player
+from svtracker.game.models import ActionType, BoardUnit, GameFormat, Player
 from svtracker.prediction.advisor import recommend_actions
 from svtracker.prediction.predictor import predict_opponent_next_actions
 from svtracker.storage.match_log import MatchLog
@@ -27,6 +27,7 @@ class MonitorApp:
         settings: Settings,
         self_clan: str = "",
         opponent_clan: str = "",
+        game_format: GameFormat = GameFormat.UNLIMITED,
         enable_match_log: bool = True,
     ):
         self.settings = settings
@@ -44,8 +45,13 @@ class MonitorApp:
         self.capture = ScreenCapture(
             monitor_index=settings.monitor_index, window_title_hint=settings.window_title_hint
         )
+        if game_format == GameFormat.ROTATION and settings.rotation_min_card_set_id is None:
+            logger.warning(
+                "ローテーション形式が選択されていますが rotation_min_card_set_id が未設定のため、"
+                "カードプールの絞り込みは行われません(実質アンリミテッドと同じ結果になります)。"
+            )
         self.event_detector = EventDetector()
-        self.tracker = MatchTracker(self_clan=self_clan, opponent_clan=opponent_clan)
+        self.tracker = MatchTracker(self_clan=self_clan, opponent_clan=opponent_clan, game_format=game_format)
 
         self.match_log = MatchLog(settings.match_db_path) if enable_match_log else None
         self.match_id: Optional[int] = None
@@ -223,7 +229,12 @@ class MonitorApp:
                 logger.info("[turn %s] %s が%sしました", action.turn, action.player.value, label)
 
         if any(a.player == Player.OPPONENT for a in new_actions):
-            predictions = predict_opponent_next_actions(self.tracker, self.database, self.match_log)
+            predictions = predict_opponent_next_actions(
+                self.tracker,
+                self.database,
+                self.match_log,
+                rotation_min_card_set_id=self.settings.rotation_min_card_set_id,
+            )
             for p in predictions[:3]:
                 logger.info("予測: 相手は次に %s を使うかもしれません (score=%.2f, %s)", p.card.name, p.score, p.reason)
 
