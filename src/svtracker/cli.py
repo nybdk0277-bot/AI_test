@@ -119,8 +119,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_list_monitors.set_defaults(func=_cmd_list_monitors)
 
     p_run = sub.add_parser("run", help="画面監視を開始する")
-    p_run.add_argument("--self-clan", default="", help="自分のクラス名")
-    p_run.add_argument("--opponent-clan", default="", help="相手のクラス名")
+    p_run.add_argument("--self-clan", default="", help="自分のクラス名(省略時は認識したカードから自動判別)")
+    p_run.add_argument("--opponent-clan", default="", help="相手のクラス名(省略時は認識したカードから自動判別)")
     p_run.set_defaults(func=_cmd_run)
 
     p_stats = sub.add_parser("stats", help="記録済みの対戦統計を表示する")

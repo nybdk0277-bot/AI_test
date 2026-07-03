@@ -81,6 +81,17 @@ class MatchLog:
             )
             self._conn.commit()
 
+    def update_match_clans(
+        self, match_id: int, self_clan: Optional[str] = None, opponent_clan: Optional[str] = None
+    ) -> None:
+        """自動判別で後から判明したクラスを、開始時に記録した matches 行へ反映する."""
+        with closing(self._conn.cursor()) as cur:
+            if self_clan is not None:
+                cur.execute("UPDATE matches SET self_clan = ? WHERE id = ?", (self_clan, match_id))
+            if opponent_clan is not None:
+                cur.execute("UPDATE matches SET opponent_clan = ? WHERE id = ?", (opponent_clan, match_id))
+            self._conn.commit()
+
     def end_match(self, match_id: int, result: str) -> None:
         with closing(self._conn.cursor()) as cur:
             cur.execute(
