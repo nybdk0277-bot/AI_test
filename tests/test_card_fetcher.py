@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock
 
 from svtracker.cards import card_fetcher
-from svtracker.cards.card_fetcher import _parse_card_common, fetch_from_official_site
+from svtracker.cards.card_fetcher import _download_card_image, _parse_card_common, fetch_from_official_site
 
 
 def test_parse_card_common_maps_known_codes():
@@ -125,3 +125,19 @@ def test_fetch_from_official_site_stops_when_no_ids_returned(tmp_path, monkeypat
 
     assert len(db) == 0
     assert session.get.call_count == 1
+
+
+def test_download_card_image_sends_referer_to_avoid_hotlink_block(tmp_path):
+    response = MagicMock()
+    response.content = b"fake-png-bytes"
+    response.raise_for_status.return_value = None
+    session = MagicMock()
+    session.get.return_value = response
+
+    result = _download_card_image("https://example.test", tmp_path, "1", "abc123", session)
+
+    assert result == tmp_path / "1.png"
+    assert (tmp_path / "1.png").read_bytes() == b"fake-png-bytes"
+
+    call_headers = session.get.call_args.kwargs["headers"]
+    assert call_headers["Referer"] == "https://example.test/ja/deck/cardslist/"
