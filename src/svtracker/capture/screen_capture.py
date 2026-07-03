@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -12,6 +13,29 @@ from PIL import Image
 from svtracker.capture.window_finder import WindowRect, find_game_window
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class MonitorInfo:
+    index: int  # ScreenCapture(monitor_index=...) / Settings.monitor_index に渡す値
+    left: int
+    top: int
+    width: int
+    height: int
+
+    @property
+    def is_virtual_combined(self) -> bool:
+        """mssの慣習で index=0 は全モニタを結合した仮想領域を指す."""
+        return self.index == 0
+
+
+def list_monitors() -> list[MonitorInfo]:
+    """キャプチャ対象として選べるモニタの一覧を返す(index=0は全モニタ結合)."""
+    with mss.mss() as sct:
+        return [
+            MonitorInfo(index=i, left=m["left"], top=m["top"], width=m["width"], height=m["height"])
+            for i, m in enumerate(sct.monitors)
+        ]
 
 
 class ScreenCapture:

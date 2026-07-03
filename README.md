@@ -95,11 +95,23 @@ card_id,name,clan,cost,card_type,rarity,filename,base_atk,base_hp
 
 ### 2. 画面領域をキャリブレーションする
 
+複数モニタ環境では、まずキャプチャ対象のモニタを確認してください。
+
+```bash
+svtracker list-monitors
+```
+
 ゲームを起動した状態で1枚キャプチャを保存し、手札・盤面の座標を調べます。
 
 ```bash
 svtracker screenshot -o screenshot.png
+# 特定のモニタを指定する場合:
+svtracker screenshot -o screenshot.png --monitor 2
 ```
+
+`--monitor` を省略した場合は `config/settings.json` の `monitor_index` が使われます。
+GUI版では「キャリブレーション」タブ上部のモニタ選択欄で切り替えられ、選択は即座に
+`config/settings.json` に保存されます。
 
 `config/regions.example.json` を `config/regions.json` としてコピーし、
 保存した画像を見ながら各カード枠の `[x, y, width, height]` を実際の座標に書き換えてください。

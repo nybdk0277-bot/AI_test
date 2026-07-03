@@ -37,15 +37,29 @@ def _cmd_screenshot(args: argparse.Namespace) -> None:
     from svtracker.capture.screen_capture import ScreenCapture
 
     settings = Settings.load()
-    capture = ScreenCapture(monitor_index=settings.monitor_index, window_title_hint=None)
+    monitor_index = args.monitor if args.monitor is not None else settings.monitor_index
+    capture = ScreenCapture(monitor_index=monitor_index, window_title_hint=None)
     try:
         image = capture.grab()
         out_path = Path(args.output)
         image.save(out_path)
-        print(f"スクリーンショットを保存しました: {out_path} ({image.width}x{image.height})")
+        print(f"スクリーンショットを保存しました: {out_path} ({image.width}x{image.height}, monitor={monitor_index})")
         print("画像ビューアで座標を確認し、config/regions.json の各枠の値を調整してください。")
     finally:
         capture.close()
+
+
+def _cmd_list_monitors(args: argparse.Namespace) -> None:
+    from svtracker.capture.screen_capture import list_monitors
+
+    for monitor in list_monitors():
+        label = "全モニタ結合" if monitor.is_virtual_combined else f"モニタ{monitor.index}"
+        print(
+            f"{monitor.index}: {label}  {monitor.width}x{monitor.height}  "
+            f"位置=({monitor.left}, {monitor.top})"
+        )
+    print("`svtracker screenshot --monitor <番号>` で確認しながら選び、"
+          "config/settings.json の monitor_index に設定してください。")
 
 
 def _cmd_run(args: argparse.Namespace) -> None:
@@ -94,7 +108,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_shot = sub.add_parser("screenshot", help="キャリブレーション用にスクリーンショットを1枚保存する")
     p_shot.add_argument("-o", "--output", default="screenshot.png")
+    p_shot.add_argument(
+        "-m", "--monitor", type=int, default=None,
+        help="キャプチャするモニタ番号(省略時はconfig/settings.jsonのmonitor_indexを使用)。"
+        "`svtracker list-monitors` で確認できる。",
+    )
     p_shot.set_defaults(func=_cmd_screenshot)
+
+    p_list_monitors = sub.add_parser("list-monitors", help="キャプチャ可能なモニタの一覧を表示する")
+    p_list_monitors.set_defaults(func=_cmd_list_monitors)
 
     p_run = sub.add_parser("run", help="画面監視を開始する")
     p_run.add_argument("--self-clan", default="", help="自分のクラス名")

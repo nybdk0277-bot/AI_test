@@ -214,6 +214,36 @@ class CalibrationTab(ttk.Frame):
         self.canvas_widget.on_rect_drawn = self._on_rect_drawn
         self.canvas_widget.on_point_picked = self._on_point_picked
 
+        ttk.Label(right, text="キャプチャするモニタ", font=("", 10, "bold")).pack(anchor="w")
+        self.monitor_var = tk.StringVar()
+        self._monitor_options = self._load_monitor_options()
+        if self._monitor_options:
+            self.monitor_combo = ttk.Combobox(
+                right,
+                textvariable=self.monitor_var,
+                state="readonly",
+                values=[self._monitor_label(m) for m in self._monitor_options],
+                width=28,
+            )
+            current_pos = next(
+                (i for i, m in enumerate(self._monitor_options) if m.index == app.settings.monitor_index), 0
+            )
+            self.monitor_combo.current(current_pos)
+            self.monitor_combo.pack(fill="x", pady=(0, 4))
+            self.monitor_combo.bind("<<ComboboxSelected>>", self._on_monitor_selected)
+        else:
+            ttk.Label(
+                right,
+                text="モニタ一覧を取得できませんでした。番号を直接入力してください。",
+                foreground="#888",
+                wraplength=230,
+            ).pack(anchor="w")
+            self.monitor_var.set(str(app.settings.monitor_index))
+            monitor_entry = ttk.Entry(right, textvariable=self.monitor_var, width=6)
+            monitor_entry.pack(anchor="w", pady=(0, 4))
+            monitor_entry.bind("<FocusOut>", self._on_monitor_entry_changed)
+            monitor_entry.bind("<Return>", self._on_monitor_entry_changed)
+
         ttk.Button(right, text="スクリーンショットを撮る", command=self._capture).pack(fill="x", pady=4)
 
         ttk.Label(right, text="編集する領域", font=("", 10, "bold")).pack(anchor="w", pady=(12, 0))
@@ -269,6 +299,35 @@ class CalibrationTab(ttk.Frame):
     def _rgb_to_hex(rgb) -> str:
         r, g, b = rgb
         return f"#{r:02x}{g:02x}{b:02x}"
+
+    @staticmethod
+    def _load_monitor_options():
+        try:
+            from svtracker.capture.screen_capture import list_monitors
+
+            return list_monitors()
+        except Exception:  # noqa: BLE001 - モニタ列挙に失敗しても手入力にフォールバックする
+            logger.exception("モニタ一覧の取得に失敗しました")
+            return None
+
+    @staticmethod
+    def _monitor_label(monitor) -> str:
+        if monitor.is_virtual_combined:
+            return f"{monitor.index}: 全モニタ結合 ({monitor.width}x{monitor.height})"
+        return f"{monitor.index}: モニタ{monitor.index} ({monitor.width}x{monitor.height}, 位置 {monitor.left},{monitor.top})"
+
+    def _on_monitor_selected(self, _event) -> None:
+        monitor = self._monitor_options[self.monitor_combo.current()]
+        self.app.settings.monitor_index = monitor.index
+        self.app.settings.save()
+
+    def _on_monitor_entry_changed(self, _event) -> None:
+        try:
+            monitor_index = int(self.monitor_var.get())
+        except ValueError:
+            return
+        self.app.settings.monitor_index = monitor_index
+        self.app.settings.save()
 
     def _apply_mode_for_region(self, name: str) -> None:
         if name in POINT_REGIONS:
