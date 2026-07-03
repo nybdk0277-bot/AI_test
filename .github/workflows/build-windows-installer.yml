@@ -22,11 +22,26 @@ jobs:
           pip install ".[windows,ocr]"
           pip install pyinstaller
 
-      - name: Build standalone exe with PyInstaller
+      - name: Build CLI exe with PyInstaller
         run: pyinstaller --name svtracker --onefile --console --collect-all cv2 --collect-all scipy --collect-all imagehash --collect-all mss --collect-submodules PIL packaging/entrypoint.py
 
-      - name: Smoke test the built exe
+      - name: Smoke test the CLI exe
         run: .\dist\svtracker.exe --help
+
+      - name: Build GUI exe with PyInstaller
+        run: pyinstaller --name svtracker-gui --onefile --windowed --collect-all cv2 --collect-all scipy --collect-all imagehash --collect-all mss --collect-submodules PIL --collect-submodules tkinter packaging/gui_entrypoint.py
+
+      - name: Smoke test the GUI exe (launch, confirm it stays running, then close)
+        shell: pwsh
+        run: |
+          $proc = Start-Process -FilePath ".\dist\svtracker-gui.exe" -PassThru
+          Start-Sleep -Seconds 6
+          if ($proc.HasExited) {
+            Write-Error "svtracker-gui.exe exited early (exit code $($proc.ExitCode))"
+            exit 1
+          }
+          Stop-Process -Id $proc.Id -Force
+          Write-Host "svtracker-gui.exe launched and stayed running - OK"
 
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
@@ -40,8 +55,10 @@ jobs:
           name: svtracker-windows-installer
           path: dist_installer/svtracker-setup.exe
 
-      - name: Upload standalone exe artifact
+      - name: Upload standalone exe artifacts
         uses: actions/upload-artifact@v4
         with:
           name: svtracker-exe
-          path: dist/svtracker.exe
+          path: |
+            dist/svtracker.exe
+            dist/svtracker-gui.exe

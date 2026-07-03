@@ -40,11 +40,18 @@ class ScreenCapture:
         self.close()
 
 
+# 複数枠を持つ領域(手札・盤面)、単一矩形の領域、単一座標(ピクセル判定用)の領域。
+# GUIのキャリブレーション画面もこの一覧を使って編集対象を出し分ける。
+RECT_LIST_REGIONS = ["self_hand", "self_board", "opponent_board"]
+RECT_SINGLE_REGIONS = ["turn_indicator", "self_pp", "self_life", "opponent_life"]
+POINT_REGIONS = ["active_player_pixel"]
+
+
 class RegionSet:
     """名前付き矩形領域(hand/board/turn indicatorなど)の集合."""
 
-    def __init__(self, regions: dict):
-        self._regions = regions
+    def __init__(self, regions: Optional[dict] = None):
+        self._regions: dict = regions if regions is not None else {}
 
     @classmethod
     def load(cls, path: Path) -> "RegionSet":
@@ -52,6 +59,38 @@ class RegionSet:
         raw.pop("_comment", None)
         raw.pop("resolution", None)
         return cls(raw)
+
+    def save(self, path: Path) -> None:
+        """slots(list-of-rects)・single(rect)・point の3種類の形が混在するため、
+        構造を仮定せず再帰的にlist化してJSONへ書き出す."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = {name: self._to_plain(value) for name, value in self._regions.items()}
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    @staticmethod
+    def _to_plain(value):
+        if isinstance(value, (list, tuple)):
+            return [RegionSet._to_plain(v) for v in value]
+        return value
+
+    def set_slots(self, name: str, rects: list[tuple[int, int, int, int]]) -> None:
+        self._regions[name] = [list(r) for r in rects]
+
+    def add_slot(self, name: str, rect: tuple[int, int, int, int]) -> None:
+        self._regions.setdefault(name, []).append(list(rect))
+
+    def remove_last_slot(self, name: str) -> None:
+        if self._regions.get(name):
+            self._regions[name].pop()
+
+    def set_single(self, name: str, rect: tuple[int, int, int, int]) -> None:
+        self._regions[name] = list(rect)
+
+    def set_point(self, name: str, xy: tuple[int, int]) -> None:
+        self._regions[name] = list(xy)
+
+    def clear(self, name: str) -> None:
+        self._regions.pop(name, None)
 
     def slots(self, name: str) -> list[tuple[int, int, int, int]]:
         """複数枠(手札・盤面など)を [x, y, w, h] のリストで返す."""

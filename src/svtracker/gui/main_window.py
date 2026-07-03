@@ -1,0 +1,548 @@
+"""svtrackerのデスクトップGUI(Tkinter)。
+
+シェル操作なしで「カードDB準備 → キャリブレーション → 監視 → 統計確認」ができるように、
+CLI(svtracker.cli)が持つ機能をタブ形式で提供する。CLIとロジックは共通で、
+svtracker.app.MonitorApp / svtracker.cards.card_fetcher などをそのまま呼ぶだけ。
+"""
+from __future__ import annotations
+
+import logging
+import threading
+import tkinter as tk
+from pathlib import Path
+from tkinter import filedialog, messagebox, ttk
+from typing import Callable, Optional
+
+from svtracker.capture.screen_capture import POINT_REGIONS, RECT_LIST_REGIONS, RECT_SINGLE_REGIONS, RegionSet
+from svtracker.cards.card_database import CardDatabase
+from svtracker.config import Settings
+from svtracker.gui.log_handler import QueueLogHandler
+from svtracker.gui.region_canvas import RegionCanvas
+from svtracker.storage.match_log import MatchLog
+
+logger = logging.getLogger(__name__)
+
+REGION_LABELS = {
+    "self_hand": "自分の手札",
+    "self_board": "自分の盤面",
+    "opponent_board": "相手の盤面",
+    "turn_indicator": "ターン表示",
+    "self_pp": "自分のPP表示",
+    "self_life": "自分のライフ表示",
+    "opponent_life": "相手のライフ表示",
+    "active_player_pixel": "手番判定ピクセル",
+}
+REGION_COLORS = {
+    "self_hand": "#33ccff",
+    "self_board": "#33ff77",
+    "opponent_board": "#ff5566",
+    "turn_indicator": "#ffcc33",
+    "self_pp": "#33ccff",
+    "self_life": "#33ff77",
+    "opponent_life": "#ff5566",
+}
+REGION_ORDER = RECT_LIST_REGIONS + RECT_SINGLE_REGIONS + POINT_REGIONS
+
+
+class App(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("svtracker - シャドウバース ワールズビヨンド 監視ツール")
+        self.geometry("1150x780")
+        self.minsize(900, 600)
+
+        self.settings = Settings.load()
+        self.settings.ensure_dirs()
+        self.regions = (
+            RegionSet.load(self.settings.regions_path) if self.settings.regions_path.exists() else RegionSet()
+        )
+
+        self.log_handler = QueueLogHandler()
+        logging.getLogger().addHandler(self.log_handler)
+        logging.getLogger().setLevel(logging.INFO)
+
+        self.monitor_app = None
+        self.monitor_thread: Optional[threading.Thread] = None
+        self.monitor_stop_event = threading.Event()
+
+        notebook = ttk.Notebook(self)
+        notebook.pack(fill="both", expand=True)
+
+        self.card_db_tab = CardDbTab(notebook, self)
+        self.calibration_tab = CalibrationTab(notebook, self)
+        self.monitor_tab = MonitorTab(notebook, self)
+        self.stats_tab = StatsTab(notebook, self)
+
+        notebook.add(self.card_db_tab, text="カードDB")
+        notebook.add(self.calibration_tab, text="キャリブレーション")
+        notebook.add(self.monitor_tab, text="監視")
+        notebook.add(self.stats_tab, text="統計")
+
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.after(200, self._poll_log_queue)
+
+    def run_in_background(self, fn: Callable, on_done: Optional[Callable] = None, on_error: Optional[Callable] = None) -> None:
+        """GUIを固まらせないよう、fnを別スレッドで実行し、結果をメインスレッドへ戻す."""
+
+        def worker():
+            try:
+                result = fn()
+            except Exception as exc:  # noqa: BLE001 - GUIなのでエラーはダイアログで見せる
+                logger.exception("バックグラウンド処理でエラーが発生しました")
+                if on_error:
+                    self.after(0, lambda: on_error(exc))
+                else:
+                    self.after(0, lambda: messagebox.showerror("エラー", str(exc)))
+                return
+            if on_done:
+                self.after(0, lambda: on_done(result))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _poll_log_queue(self) -> None:
+        lines = self.log_handler.drain()
+        if lines:
+            self.monitor_tab.append_log(lines)
+        self.after(200, self._poll_log_queue)
+
+    def _on_close(self) -> None:
+        self.monitor_tab.stop_monitoring()
+        self.destroy()
+
+
+class CardDbTab(ttk.Frame):
+    def __init__(self, parent, app: App):
+        super().__init__(parent, padding=16)
+        self.app = app
+
+        self.count_var = tk.StringVar()
+        ttk.Label(self, textvariable=self.count_var, font=("", 11, "bold")).pack(anchor="w", pady=(0, 12))
+
+        ttk.Button(self, text="公式サイトから取得", command=self._fetch).pack(anchor="w", pady=4)
+        ttk.Label(
+            self,
+            text="サイト構造の変化でうまく取得できない場合は、下の「ローカルから取り込み」をお使いください。",
+            foreground="#888",
+            wraplength=500,
+        ).pack(anchor="w", pady=(0, 12))
+
+        ttk.Button(self, text="ローカルの画像+CSVから取り込み", command=self._import).pack(anchor="w", pady=4)
+        ttk.Label(
+            self,
+            text="CSVヘッダ: card_id,name,clan,cost,card_type,rarity,filename[,base_atk,base_hp]",
+            foreground="#888",
+        ).pack(anchor="w")
+
+        self.status_var = tk.StringVar(value="")
+        ttk.Label(self, textvariable=self.status_var, foreground="#0a6").pack(anchor="w", pady=(16, 0))
+
+        self._refresh_count()
+
+    def _refresh_count(self) -> None:
+        db = CardDatabase.load(self.app.settings.card_db_path)
+        self.count_var.set(f"現在のカードDB: {len(db)} 枚")
+
+    def _fetch(self) -> None:
+        self.status_var.set("公式サイトから取得中...(数分かかる場合があります)")
+
+        def work():
+            from svtracker.cards.card_fetcher import fetch_from_official_site
+
+            db = fetch_from_official_site(
+                base_url=self.app.settings.official_site_base,
+                list_path=self.app.settings.official_cardlist_path,
+                images_dir=self.app.settings.cards_dir,
+                hash_size=self.app.settings.hash_size,
+            )
+            db.save(self.app.settings.card_db_path)
+            return len(db)
+
+        def done(count):
+            self.status_var.set(f"{count} 枚取得しました。")
+            self._refresh_count()
+
+        def error(exc):
+            self.status_var.set("取得に失敗しました。")
+            messagebox.showerror(
+                "カード取得エラー",
+                f"{exc}\n\nサイト構造が変わっている可能性があります。ローカル取り込みをお試しください。",
+            )
+
+        self.app.run_in_background(work, on_done=done, on_error=error)
+
+    def _import(self) -> None:
+        images_dir = filedialog.askdirectory(title="カード画像フォルダを選択")
+        if not images_dir:
+            return
+        csv_path = filedialog.askopenfilename(title="メタ情報CSVを選択", filetypes=[("CSV", "*.csv")])
+        if not csv_path:
+            return
+        self.status_var.set("取り込み中...")
+
+        def work():
+            from svtracker.cards.card_fetcher import import_from_local
+
+            db = import_from_local(Path(images_dir), Path(csv_path), hash_size=self.app.settings.hash_size)
+            db.save(self.app.settings.card_db_path)
+            return len(db)
+
+        def done(count):
+            self.status_var.set(f"{count} 枚取り込みました。")
+            self._refresh_count()
+
+        def error(exc):
+            self.status_var.set("取り込みに失敗しました。")
+            messagebox.showerror("取り込みエラー", str(exc))
+
+        self.app.run_in_background(work, on_done=done, on_error=error)
+
+
+class CalibrationTab(ttk.Frame):
+    def __init__(self, parent, app: App):
+        super().__init__(parent, padding=8)
+        self.app = app
+        self._captured_image = None
+        self._pending_color_target: Optional[str] = None
+        self.current_region = REGION_ORDER[0]
+
+        left = ttk.Frame(self)
+        left.pack(side="left", fill="both", expand=True)
+        right = ttk.Frame(self, padding=(12, 0, 0, 0))
+        right.pack(side="right", fill="y")
+
+        self.canvas_widget = RegionCanvas(left)
+        self.canvas_widget.pack(fill="both", expand=True)
+        self.canvas_widget.on_rect_drawn = self._on_rect_drawn
+        self.canvas_widget.on_point_picked = self._on_point_picked
+
+        ttk.Button(right, text="スクリーンショットを撮る", command=self._capture).pack(fill="x", pady=4)
+
+        ttk.Label(right, text="編集する領域", font=("", 10, "bold")).pack(anchor="w", pady=(12, 0))
+        self.region_var = tk.StringVar(value=REGION_LABELS.get(self.current_region, self.current_region))
+        region_box = ttk.Combobox(
+            right,
+            textvariable=self.region_var,
+            state="readonly",
+            values=[REGION_LABELS.get(n, n) for n in REGION_ORDER],
+            width=24,
+        )
+        region_box.current(0)
+        region_box.pack(fill="x")
+        region_box.bind("<<ComboboxSelected>>", lambda e: self._on_region_changed(region_box.current()))
+
+        self.hint_var = tk.StringVar()
+        ttk.Label(right, textvariable=self.hint_var, wraplength=230, foreground="#888").pack(anchor="w", pady=(6, 0))
+
+        self.slot_count_var = tk.StringVar()
+        ttk.Label(right, textvariable=self.slot_count_var).pack(anchor="w", pady=(6, 0))
+        ttk.Button(right, text="最後のスロットを削除", command=self._remove_last_slot).pack(fill="x", pady=2)
+        ttk.Button(right, text="この領域をクリア", command=self._clear_region).pack(fill="x", pady=2)
+
+        ttk.Separator(right).pack(fill="x", pady=10)
+        ttk.Label(right, text="手番判定の基準色", font=("", 10, "bold")).pack(anchor="w")
+        ttk.Label(
+            right,
+            text="スクリーンショット上で、自分/相手それぞれの手番のときに色が変わるUI部分をクリックして登録します。",
+            wraplength=230,
+            foreground="#888",
+        ).pack(anchor="w")
+        ttk.Button(right, text="この位置を自分の手番色として登録", command=lambda: self._arm_color_pick("self")).pack(
+            fill="x", pady=2
+        )
+        ttk.Button(
+            right, text="この位置を相手の手番色として登録", command=lambda: self._arm_color_pick("opponent")
+        ).pack(fill="x", pady=2)
+        self.self_color_swatch = tk.Label(right, text="自分の手番色", bg=self._rgb_to_hex(app.settings.self_turn_color))
+        self.self_color_swatch.pack(fill="x", pady=2)
+        self.opponent_color_swatch = tk.Label(
+            right, text="相手の手番色", bg=self._rgb_to_hex(app.settings.opponent_turn_color)
+        )
+        self.opponent_color_swatch.pack(fill="x", pady=2)
+
+        ttk.Separator(right).pack(fill="x", pady=10)
+        ttk.Button(right, text="regions.json / settings.json に保存", command=self._save_all).pack(fill="x", pady=4)
+
+        self._apply_mode_for_region(self.current_region)
+        self._update_slot_count()
+        self._refresh_overlays()
+
+    @staticmethod
+    def _rgb_to_hex(rgb) -> str:
+        r, g, b = rgb
+        return f"#{r:02x}{g:02x}{b:02x}"
+
+    def _apply_mode_for_region(self, name: str) -> None:
+        if name in POINT_REGIONS:
+            self.canvas_widget.set_mode("point")
+            self.hint_var.set("キャンバス上をクリックして座標を指定します。")
+        elif name in RECT_LIST_REGIONS:
+            self.canvas_widget.set_mode("rect")
+            self.hint_var.set("ドラッグして矩形を追加していきます(複数枠)。")
+        else:
+            self.canvas_widget.set_mode("rect")
+            self.hint_var.set("ドラッグして矩形を指定します(1つだけ)。")
+
+    def _capture(self) -> None:
+        def work():
+            from svtracker.capture.screen_capture import ScreenCapture
+
+            capture = ScreenCapture(monitor_index=self.app.settings.monitor_index, window_title_hint=None)
+            try:
+                return capture.grab()
+            finally:
+                capture.close()
+
+        def done(image):
+            self._captured_image = image
+            self.canvas_widget.set_image(image)
+            self._refresh_overlays()
+
+        self.app.run_in_background(work, on_done=done)
+
+    def _on_region_changed(self, index: int) -> None:
+        self.current_region = REGION_ORDER[index]
+        self._apply_mode_for_region(self.current_region)
+        self._update_slot_count()
+
+    def _update_slot_count(self) -> None:
+        name = self.current_region
+        if name in RECT_LIST_REGIONS:
+            self.slot_count_var.set(f"現在 {len(self.app.regions.slots(name))} 枠")
+        elif name in RECT_SINGLE_REGIONS:
+            self.slot_count_var.set("設定済み" if self.app.regions.single(name) else "未設定")
+        else:
+            self.slot_count_var.set("設定済み" if self.app.regions.point(name) else "未設定")
+
+    def _on_rect_drawn(self, x: int, y: int, w: int, h: int) -> None:
+        name = self.current_region
+        if name in RECT_LIST_REGIONS:
+            self.app.regions.add_slot(name, (x, y, w, h))
+        elif name in RECT_SINGLE_REGIONS:
+            self.app.regions.set_single(name, (x, y, w, h))
+        else:
+            return
+        self._update_slot_count()
+        self._refresh_overlays()
+
+    def _on_point_picked(self, x: int, y: int) -> None:
+        if self._pending_color_target is not None:
+            self._pick_color_at(x, y)
+            return
+        name = self.current_region
+        if name in POINT_REGIONS:
+            self.app.regions.set_point(name, (x, y))
+            self._update_slot_count()
+            self._refresh_overlays()
+
+    def _pick_color_at(self, x: int, y: int) -> None:
+        target = self._pending_color_target
+        self._pending_color_target = None
+        self._apply_mode_for_region(self.current_region)
+        if self._captured_image is None:
+            messagebox.showwarning("未撮影", "先にスクリーンショットを撮ってください。")
+            return
+        color = self._captured_image.convert("RGB").getpixel((x, y))
+        if target == "self":
+            self.app.settings.self_turn_color = color
+            self.self_color_swatch.config(bg=self._rgb_to_hex(color))
+        else:
+            self.app.settings.opponent_turn_color = color
+            self.opponent_color_swatch.config(bg=self._rgb_to_hex(color))
+
+    def _arm_color_pick(self, target: str) -> None:
+        if self._captured_image is None:
+            messagebox.showwarning("未撮影", "先にスクリーンショットを撮ってください。")
+            return
+        self._pending_color_target = target
+        self.canvas_widget.set_mode("point")
+        self.hint_var.set("キャンバス上で手番表示部分をクリックしてください。")
+
+    def _remove_last_slot(self) -> None:
+        name = self.current_region
+        if name in RECT_LIST_REGIONS:
+            self.app.regions.remove_last_slot(name)
+        else:
+            self.app.regions.clear(name)
+        self._update_slot_count()
+        self._refresh_overlays()
+
+    def _clear_region(self) -> None:
+        self.app.regions.clear(self.current_region)
+        self._update_slot_count()
+        self._refresh_overlays()
+
+    def _refresh_overlays(self) -> None:
+        rects = []
+        for name in RECT_LIST_REGIONS:
+            color = REGION_COLORS.get(name, "#ffffff")
+            for i, rect in enumerate(self.app.regions.slots(name)):
+                rects.append((*rect, f"{REGION_LABELS.get(name, name)}{i + 1}", color))
+        for name in RECT_SINGLE_REGIONS:
+            rect = self.app.regions.single(name)
+            if rect:
+                rects.append((*rect, REGION_LABELS.get(name, name), REGION_COLORS.get(name, "#ffffff")))
+        points = []
+        for name in POINT_REGIONS:
+            pt = self.app.regions.point(name)
+            if pt:
+                points.append((*pt, REGION_LABELS.get(name, name), "#ff33ff"))
+        self.canvas_widget.set_overlays(rects, points)
+
+    def _save_all(self) -> None:
+        self.app.regions.save(self.app.settings.regions_path)
+        self.app.settings.save()
+        messagebox.showinfo("保存しました", "regions.json / settings.json を保存しました。")
+
+
+class MonitorTab(ttk.Frame):
+    def __init__(self, parent, app: App):
+        super().__init__(parent, padding=8)
+        self.app = app
+
+        form = ttk.Frame(self)
+        form.pack(fill="x")
+        ttk.Label(form, text="自分のクラン:").grid(row=0, column=0, sticky="w")
+        self.self_clan_var = tk.StringVar()
+        ttk.Entry(form, textvariable=self.self_clan_var, width=16).grid(row=0, column=1, padx=4)
+        ttk.Label(form, text="相手のクラン:").grid(row=0, column=2, sticky="w", padx=(12, 0))
+        self.opponent_clan_var = tk.StringVar()
+        ttk.Entry(form, textvariable=self.opponent_clan_var, width=16).grid(row=0, column=3, padx=4)
+
+        self.start_button = ttk.Button(form, text="開始", command=self._start)
+        self.start_button.grid(row=0, column=4, padx=(12, 4))
+        self.stop_button = ttk.Button(form, text="停止", command=self._stop, state="disabled")
+        self.stop_button.grid(row=0, column=5)
+
+        self.status_var = tk.StringVar(value="停止中")
+        ttk.Label(self, textvariable=self.status_var, foreground="#666").pack(anchor="w", pady=(6, 0))
+
+        self.log_text = tk.Text(self, height=30, state="disabled", bg="#111111", fg="#dddddd", wrap="word")
+        self.log_text.pack(fill="both", expand=True, pady=(8, 0))
+
+    def append_log(self, lines: list[str]) -> None:
+        self.log_text.config(state="normal")
+        for line in lines:
+            self.log_text.insert("end", line + "\n")
+        self.log_text.see("end")
+        self.log_text.config(state="disabled")
+
+    def _start(self) -> None:
+        if self.app.monitor_thread is not None and self.app.monitor_thread.is_alive():
+            return
+        if not self.app.settings.regions_path.exists():
+            messagebox.showwarning("未設定", "先にキャリブレーションタブで regions.json を保存してください。")
+            return
+
+        self_clan = self.self_clan_var.get()
+        opponent_clan = self.opponent_clan_var.get()
+        self.app.monitor_stop_event.clear()
+        self.status_var.set("開始中...")
+        self.start_button.config(state="disabled")
+
+        def loop():
+            from svtracker.app import MonitorApp
+
+            try:
+                monitor_app = MonitorApp(self.app.settings, self_clan=self_clan, opponent_clan=opponent_clan)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("監視の開始に失敗しました")
+                self.app.after(0, lambda: self._on_start_failed(exc))
+                return
+
+            self.app.monitor_app = monitor_app
+            self.app.after(0, self._on_started)
+            interval = self.app.settings.capture_interval_sec
+            while not self.app.monitor_stop_event.is_set():
+                try:
+                    monitor_app.step()
+                except Exception:  # noqa: BLE001
+                    logger.exception("監視ループでエラーが発生しました")
+                self.app.monitor_stop_event.wait(interval)
+            try:
+                monitor_app.close()
+            except Exception:  # noqa: BLE001
+                logger.exception("監視の終了処理でエラーが発生しました")
+            self.app.monitor_app = None
+
+        self.app.monitor_thread = threading.Thread(target=loop, daemon=True)
+        self.app.monitor_thread.start()
+
+    def _on_started(self) -> None:
+        self.status_var.set("監視中")
+        self.stop_button.config(state="normal")
+
+    def _on_start_failed(self, exc: Exception) -> None:
+        self.status_var.set("停止中")
+        self.start_button.config(state="normal")
+        messagebox.showerror("開始できません", str(exc))
+
+    def _stop(self) -> None:
+        self.stop_button.config(state="disabled")
+        self.app.run_in_background(self.stop_monitoring, on_done=lambda _: self._on_stopped())
+
+    def _on_stopped(self) -> None:
+        self.status_var.set("停止中")
+        self.start_button.config(state="normal")
+
+    def stop_monitoring(self) -> None:
+        """スレッドセーフな停止処理のみ(Tkinterウィジェットは触らない)。
+        ウィンドウを閉じる際にもメインスレッドから直接呼ばれる。"""
+        if self.app.monitor_thread is None:
+            return
+        self.app.monitor_stop_event.set()
+        self.app.monitor_thread.join(timeout=10)
+        self.app.monitor_thread = None
+
+
+class StatsTab(ttk.Frame):
+    def __init__(self, parent, app: App):
+        super().__init__(parent, padding=8)
+        self.app = app
+
+        form = ttk.Frame(self)
+        form.pack(fill="x")
+        ttk.Label(form, text="相手クラン:").pack(side="left")
+        self.clan_var = tk.StringVar()
+        ttk.Entry(form, textvariable=self.clan_var, width=16).pack(side="left", padx=4)
+        ttk.Button(form, text="表示", command=self._refresh).pack(side="left")
+
+        columns = ("name", "count")
+        self.tree = ttk.Treeview(self, columns=columns, show="headings")
+        self.tree.heading("name", text="カード名")
+        self.tree.heading("count", text="使用された試合数")
+        self.tree.pack(fill="both", expand=True, pady=(8, 0))
+
+    def _refresh(self) -> None:
+        clan = self.clan_var.get()
+        if not clan:
+            return
+        if not self.app.settings.match_db_path.exists():
+            messagebox.showinfo("記録なし", "対戦記録がまだありません。")
+            return
+        for row in self.tree.get_children():
+            self.tree.delete(row)
+
+        log = MatchLog(self.app.settings.match_db_path)
+        try:
+            pool = log.opponent_card_pool(clan)
+        finally:
+            log.close()
+        if not pool:
+            messagebox.showinfo("記録なし", f"クラン '{clan}' の対戦記録が見つかりませんでした。")
+            return
+
+        db = CardDatabase.load(self.app.settings.card_db_path)
+        for card_id, count in pool:
+            card = db.get(card_id)
+            name = card.name if card else card_id
+            self.tree.insert("", "end", values=(name, count))
+
+
+def main() -> int:
+    app = App()
+    app.mainloop()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -62,3 +62,17 @@ class Settings:
         self.cards_dir.mkdir(parents=True, exist_ok=True)
         self.match_db_path.parent.mkdir(parents=True, exist_ok=True)
         self.regions_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def save(self, path: Path | None = None) -> None:
+        """GUIでの設定変更(手番の基準色など)を config/settings.json に書き戻す."""
+        path = path or DEFAULT_SETTINGS_PATH
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = {}
+        for f in fields(self):
+            value = getattr(self, f.name)
+            if isinstance(value, Path):
+                value = str(value)
+            elif isinstance(value, tuple):
+                value = list(value)
+            data[f.name] = value
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
