@@ -1,0 +1,20 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# ローカルデータ(カード画像・対戦ログ・DB)はリポジトリに含めない
+data/cards/*.png
+data/cards/*.jpg
+data/cards/*.jpeg
+data/cards/cache/
+data/matches/*.db
+data/matches/*.jsonl
+*.db
+
+# キャリブレーション用に保存したスクリーンショット
+scratch/
+*.local.json

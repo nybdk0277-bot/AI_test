@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "svtracker"
+version = "0.1.0"
+description = "Shadowverse: Worlds Beyond (Steam) の画面を監視してカード使用を検出し、対戦を記録・予測・アドバイスするツール"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "mss>=9.0.1",
+    "Pillow>=10.0.0",
+    "numpy>=1.24",
+    "ImageHash>=4.3.1",
+    "scipy>=1.10",
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+    "opencv-python-headless>=4.8",
+]
+
+[project.optional-dependencies]
+windows = ["pygetwindow>=0.0.9", "pywin32>=306; platform_system=='Windows'"]
+ocr = ["pytesseract>=0.3.10"]
+dev = ["pytest>=7.4", "pytest-mock>=3.11"]
+
+[project.scripts]
+svtracker = "svtracker.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

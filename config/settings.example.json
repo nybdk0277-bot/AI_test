@@ -1,0 +1,7 @@
+{
+  "capture_interval_sec": 1.0,
+  "window_title_hint": "Shadowverse",
+  "monitor_index": 1,
+  "hash_size": 16,
+  "match_max_distance": 14
+}
