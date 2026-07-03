@@ -3,7 +3,7 @@ from pathlib import Path
 from svtracker.cards.card_database import CardDatabase
 from svtracker.cards.models import Card
 from svtracker.game.match_tracker import MatchTracker
-from svtracker.game.models import Action, ActionType, Player
+from svtracker.game.models import Action, ActionType, GameFormat, Player
 from svtracker.prediction.predictor import predict_opponent_next_actions
 from svtracker.storage.match_log import MatchLog
 
@@ -58,3 +58,51 @@ def test_predictor_without_history_falls_back_to_curve_and_novelty(tmp_path):
 
     # turn=1 なのでコスト3のカードは(コスト超過で)候補から外れているはず
     assert all(p.card.cost <= 1 for p in predictions)
+
+
+def build_rotation_database() -> CardDatabase:
+    db = CardDatabase()
+    db.add(Card(card_id="old1", name="旧弾カード", clan="ロイヤル", cost=1, card_type="フォロワー", card_set_id=1))
+    db.add(Card(card_id="new1", name="最新弾カード", clan="ロイヤル", cost=1, card_type="フォロワー", card_set_id=10))
+    db.add(Card(card_id="unk1", name="弾番号不明カード", clan="ロイヤル", cost=1, card_type="フォロワー"))
+    return db
+
+
+def test_rotation_format_excludes_cards_below_threshold():
+    database = build_rotation_database()
+    tracker = MatchTracker(self_clan="エルフ", opponent_clan="ロイヤル", game_format=GameFormat.ROTATION)
+    tracker.advance_turn(Player.OPPONENT)  # turn=1
+
+    predictions = predict_opponent_next_actions(
+        tracker, database, match_log=None, top_k=5, rotation_min_card_set_id=5
+    )
+
+    ids = {p.card.card_id for p in predictions}
+    assert "old1" not in ids
+    assert "new1" in ids
+    # card_set_id が不明なカードは安全側で除外しない
+    assert "unk1" in ids
+
+
+def test_unlimited_format_does_not_filter_by_card_set():
+    database = build_rotation_database()
+    tracker = MatchTracker(self_clan="エルフ", opponent_clan="ロイヤル", game_format=GameFormat.UNLIMITED)
+    tracker.advance_turn(Player.OPPONENT)  # turn=1
+
+    predictions = predict_opponent_next_actions(
+        tracker, database, match_log=None, top_k=5, rotation_min_card_set_id=5
+    )
+
+    ids = {p.card.card_id for p in predictions}
+    assert {"old1", "new1", "unk1"} <= ids
+
+
+def test_rotation_format_without_threshold_does_not_filter():
+    database = build_rotation_database()
+    tracker = MatchTracker(self_clan="エルフ", opponent_clan="ロイヤル", game_format=GameFormat.ROTATION)
+    tracker.advance_turn(Player.OPPONENT)  # turn=1
+
+    predictions = predict_opponent_next_actions(tracker, database, match_log=None, top_k=5)
+
+    ids = {p.card.card_id for p in predictions}
+    assert {"old1", "new1", "unk1"} <= ids

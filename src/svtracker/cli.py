@@ -64,9 +64,13 @@ def _cmd_list_monitors(args: argparse.Namespace) -> None:
 
 def _cmd_run(args: argparse.Namespace) -> None:
     from svtracker.app import MonitorApp
+    from svtracker.game.models import GameFormat
 
     settings = Settings.load()
-    app = MonitorApp(settings, self_clan=args.self_clan, opponent_clan=args.opponent_clan)
+    game_format = GameFormat(args.format) if args.format else GameFormat(settings.game_format)
+    app = MonitorApp(
+        settings, self_clan=args.self_clan, opponent_clan=args.opponent_clan, game_format=game_format
+    )
     try:
         app.run_forever()
     finally:
@@ -121,6 +125,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_run = sub.add_parser("run", help="画面監視を開始する")
     p_run.add_argument("--self-clan", default="", help="自分のクラス名(省略時は認識したカードから自動判別)")
     p_run.add_argument("--opponent-clan", default="", help="相手のクラス名(省略時は認識したカードから自動判別)")
+    p_run.add_argument(
+        "--format",
+        choices=["unlimited", "rotation"],
+        default=None,
+        help="対戦形式(省略時は config/settings.json の game_format を使用)。"
+        "相手プレイ予測のカードプール絞り込みに使う",
+    )
     p_run.set_defaults(func=_cmd_run)
 
     p_stats = sub.add_parser("stats", help="記録済みの対戦統計を表示する")

@@ -28,6 +28,32 @@ def test_parse_card_common_maps_known_codes():
     assert card.base_hp == 1
 
 
+def test_parse_card_common_extracts_card_set_id_when_present():
+    common = {
+        "card_id": 1,
+        "name": "A",
+        "class": 0,
+        "cost": 1,
+        "type": 1,
+        "rarity": 1,
+        "atk": 1,
+        "life": 1,
+        "card_set_id": 12,
+    }
+
+    card = _parse_card_common(common)
+
+    assert card.card_set_id == 12
+
+
+def test_parse_card_common_leaves_card_set_id_none_when_absent():
+    common = {"card_id": 1, "name": "A", "class": 0, "cost": 1, "type": 1, "rarity": 1, "atk": 1, "life": 1}
+
+    card = _parse_card_common(common)
+
+    assert card.card_set_id is None
+
+
 def test_parse_card_common_falls_back_for_unknown_type_and_rarity():
     common = {"card_id": 1, "name": "謎カード", "class": 7, "cost": 0, "type": 99, "rarity": 9, "atk": 0, "life": 0}
 

@@ -20,6 +20,9 @@ class Card:
     # フォロワーの場合の基礎ステータス（分かれば）。アドバイス機能で利用。
     base_atk: Optional[int] = None
     base_hp: Optional[int] = None
+    # カードセット(弾)番号。ローテーション対象判定に使う。取得元から分からなければNone
+    # (Noneのカードはローテーション判定で除外せず、常に対象に含める=安全側のフォールバック)。
+    card_set_id: Optional[int] = None
 
     def to_dict(self) -> dict:
         return {
@@ -33,6 +36,7 @@ class Card:
             "phash": self.phash,
             "base_atk": self.base_atk,
             "base_hp": self.base_hp,
+            "card_set_id": self.card_set_id,
         }
 
     @classmethod
@@ -48,4 +52,5 @@ class Card:
             phash=data.get("phash"),
             base_atk=data.get("base_atk"),
             base_hp=data.get("base_hp"),
+            card_set_id=data.get("card_set_id"),
         )
