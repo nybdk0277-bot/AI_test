@@ -128,6 +128,23 @@ class CardDbTab(ttk.Frame):
         self.count_var = tk.StringVar()
         ttk.Label(self, textvariable=self.count_var, font=("", 11, "bold")).pack(anchor="w", pady=(0, 12))
 
+        self.merge_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            self,
+            text="既存のカードDBに追加する(上書きしない)",
+            variable=self.merge_var,
+        ).pack(anchor="w")
+        ttk.Label(
+            self,
+            text=(
+                "公式サイトのカード一覧にはトークンカード(効果で生成されるカード)が"
+                "含まれないため、下の「ローカルから取り込み」でトークン用の画像+CSVを"
+                "別途用意し、このチェックをONにして取り込むと公式データを消さずに追加できます。"
+            ),
+            foreground="#888",
+            wraplength=500,
+        ).pack(anchor="w", pady=(0, 12))
+
         ttk.Button(self, text="公式サイトから取得", command=self._fetch).pack(anchor="w", pady=4)
         ttk.Label(
             self,
@@ -139,7 +156,7 @@ class CardDbTab(ttk.Frame):
         ttk.Button(self, text="ローカルの画像+CSVから取り込み", command=self._import).pack(anchor="w", pady=4)
         ttk.Label(
             self,
-            text="CSVヘッダ: card_id,name,clan,cost,card_type,rarity,filename[,base_atk,base_hp]",
+            text="CSVヘッダ: card_id,name,clan,cost,card_type,rarity,filename[,base_atk,base_hp,card_set_id]",
             foreground="#888",
         ).pack(anchor="w")
 
@@ -155,6 +172,8 @@ class CardDbTab(ttk.Frame):
     def _fetch(self) -> None:
         self.status_var.set("公式サイトから取得中...(数分かかる場合があります)")
 
+        merge = self.merge_var.get()
+
         def work():
             from svtracker.cards.card_fetcher import fetch_from_official_site
 
@@ -163,6 +182,10 @@ class CardDbTab(ttk.Frame):
                 images_dir=self.app.settings.cards_dir,
                 hash_size=self.app.settings.hash_size,
             )
+            if merge and self.app.settings.card_db_path.exists():
+                existing = CardDatabase.load(self.app.settings.card_db_path)
+                existing.merge(db)
+                db = existing
             db.save(self.app.settings.card_db_path)
             return len(db)
 
@@ -187,11 +210,16 @@ class CardDbTab(ttk.Frame):
         if not csv_path:
             return
         self.status_var.set("取り込み中...")
+        merge = self.merge_var.get()
 
         def work():
             from svtracker.cards.card_fetcher import import_from_local
 
             db = import_from_local(Path(images_dir), Path(csv_path), hash_size=self.app.settings.hash_size)
+            if merge and self.app.settings.card_db_path.exists():
+                existing = CardDatabase.load(self.app.settings.card_db_path)
+                existing.merge(db)
+                db = existing
             db.save(self.app.settings.card_db_path)
             return len(db)
 
