@@ -70,9 +70,9 @@ def _cmd_stats(args: argparse.Namespace) -> None:
     try:
         pool = log.opponent_card_pool(args.clan)
         if not pool:
-            print(f"クラン '{args.clan}' の対戦記録が見つかりませんでした。")
+            print(f"クラス '{args.clan}' の対戦記録が見つかりませんでした。")
             return
-        print(f"クラン '{args.clan}' 相手によく使われたカード:")
+        print(f"クラス '{args.clan}' 相手によく使われたカード:")
         for card_id, count in pool[: args.top]:
             print(f"  card_id={card_id}: {count}試合で使用")
     finally:
@@ -97,12 +97,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_shot.set_defaults(func=_cmd_screenshot)
 
     p_run = sub.add_parser("run", help="画面監視を開始する")
-    p_run.add_argument("--self-clan", default="", help="自分のクラン名")
-    p_run.add_argument("--opponent-clan", default="", help="相手のクラン名")
+    p_run.add_argument("--self-clan", default="", help="自分のクラス名")
+    p_run.add_argument("--opponent-clan", default="", help="相手のクラス名")
     p_run.set_defaults(func=_cmd_run)
 
     p_stats = sub.add_parser("stats", help="記録済みの対戦統計を表示する")
-    p_stats.add_argument("clan", help="対象クラン名")
+    p_stats.add_argument("clan", help="対象クラス名")
     p_stats.add_argument("--top", type=int, default=20)
     p_stats.set_defaults(func=_cmd_stats)
 

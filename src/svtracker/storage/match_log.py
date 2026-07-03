@@ -97,7 +97,7 @@ class MatchLog:
             return cur.fetchone()[0]
 
     def card_play_frequency(self, opponent_clan: str, card_id: str, turn: int, window: int = 1) -> float:
-        """過去の対戦で、指定クランの相手がそのターン付近(±window)にそのカードを
+        """過去の対戦で、指定クラスの相手がそのターン付近(±window)にそのカードを
         プレイした割合(0.0-1.0)。対戦データが無ければ0.0."""
         total = self.total_matches_vs_clan(opponent_clan)
         if total == 0:
@@ -116,7 +116,7 @@ class MatchLog:
         return min(1.0, count / total)
 
     def opponent_card_pool(self, opponent_clan: str, limit: int = 200) -> list[tuple[str, int]]:
-        """そのクラン相手に過去プレイされたカードと、プレイされた対戦数の一覧
+        """そのクラス相手に過去プレイされたカードと、プレイされた対戦数の一覧
         (頻度が高い順)。predictorが候補を絞り込む際の材料にする。"""
         with closing(self._conn.cursor()) as cur:
             cur.execute(
