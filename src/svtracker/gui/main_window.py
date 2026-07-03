@@ -400,10 +400,10 @@ class MonitorTab(ttk.Frame):
 
         form = ttk.Frame(self)
         form.pack(fill="x")
-        ttk.Label(form, text="自分のクラン:").grid(row=0, column=0, sticky="w")
+        ttk.Label(form, text="自分のクラス:").grid(row=0, column=0, sticky="w")
         self.self_clan_var = tk.StringVar()
         ttk.Entry(form, textvariable=self.self_clan_var, width=16).grid(row=0, column=1, padx=4)
-        ttk.Label(form, text="相手のクラン:").grid(row=0, column=2, sticky="w", padx=(12, 0))
+        ttk.Label(form, text="相手のクラス:").grid(row=0, column=2, sticky="w", padx=(12, 0))
         self.opponent_clan_var = tk.StringVar()
         ttk.Entry(form, textvariable=self.opponent_clan_var, width=16).grid(row=0, column=3, padx=4)
 
@@ -500,7 +500,7 @@ class StatsTab(ttk.Frame):
 
         form = ttk.Frame(self)
         form.pack(fill="x")
-        ttk.Label(form, text="相手クラン:").pack(side="left")
+        ttk.Label(form, text="相手クラス:").pack(side="left")
         self.clan_var = tk.StringVar()
         ttk.Entry(form, textvariable=self.clan_var, width=16).pack(side="left", padx=4)
         ttk.Button(form, text="表示", command=self._refresh).pack(side="left")
@@ -527,7 +527,7 @@ class StatsTab(ttk.Frame):
         finally:
             log.close()
         if not pool:
-            messagebox.showinfo("記録なし", f"クラン '{clan}' の対戦記録が見つかりませんでした。")
+            messagebox.showinfo("記録なし", f"クラス '{clan}' の対戦記録が見つかりませんでした。")
             return
 
         db = CardDatabase.load(self.app.settings.card_db_path)
