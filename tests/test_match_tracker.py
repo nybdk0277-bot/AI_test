@@ -79,3 +79,55 @@ def test_event_detector_ignores_unchanged_state():
     actions = detector.update(turn=1, self_hand_ids=["A"], self_board_ids=["B"], opponent_board_ids=["X"])
 
     assert actions == []
+
+
+def test_event_detector_detects_evolve_from_ep_decrease():
+    detector = EventDetector()
+    detector.update(turn=4, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[], self_ep=2, opponent_ep=2)
+
+    actions = detector.update(
+        turn=4, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[], self_ep=1, opponent_ep=2
+    )
+
+    assert len(actions) == 1
+    assert actions[0].player == Player.SELF
+    assert actions[0].action_type == ActionType.EVOLVE
+
+
+def test_event_detector_detects_super_evolve_from_ep_drop_of_two():
+    detector = EventDetector()
+    detector.update(turn=8, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[], self_ep=0, opponent_ep=2)
+
+    actions = detector.update(
+        turn=8, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[], self_ep=0, opponent_ep=0
+    )
+
+    assert len(actions) == 1
+    assert actions[0].player == Player.OPPONENT
+    assert actions[0].action_type == ActionType.SUPER_EVOLVE
+
+
+def test_event_detector_ignores_ep_increase_and_missing_observations():
+    detector = EventDetector()
+    detector.update(turn=1, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[], self_ep=0, opponent_ep=0)
+
+    # EP増加(ターン開始時の付与)は進化として検出しない
+    actions = detector.update(
+        turn=2, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[], self_ep=2, opponent_ep=0
+    )
+    assert actions == []
+
+    # 観測できない(None)フレームは無視して基準値を保持する
+    actions = detector.update(turn=3, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[])
+    assert actions == []
+
+
+def test_match_tracker_set_extra_pp_and_ep():
+    tracker = MatchTracker()
+
+    tracker.set_extra_pp(2)
+    assert tracker.state.self_extra_pp == 2
+
+    tracker.set_ep(2, 1)
+    assert tracker.state.self_ep == 2
+    assert tracker.state.opponent_ep == 1

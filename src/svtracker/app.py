@@ -13,7 +13,7 @@ from svtracker.capture.screen_capture import RegionSet, ScreenCapture
 from svtracker.config import Settings
 from svtracker.game.event_detector import EventDetector
 from svtracker.game.match_tracker import MatchTracker
-from svtracker.game.models import BoardUnit, Player
+from svtracker.game.models import ActionType, BoardUnit, Player
 from svtracker.prediction.advisor import recommend_actions
 from svtracker.prediction.predictor import predict_opponent_next_actions
 from svtracker.storage.match_log import MatchLog
@@ -115,6 +115,30 @@ class MonitorApp:
             if pp is not None:
                 self.tracker.set_pp(*pp)
 
+        extra_pp_rect = self.regions.single("self_extra_pp")
+        if extra_pp_rect is not None:
+            extra_pp = ocr_reader.read_extra_pp(self.regions.crop(frame, extra_pp_rect))
+            if extra_pp is not None:
+                self.tracker.set_extra_pp(extra_pp)
+
+        self_ep_rect = self.regions.single("self_ep")
+        opponent_ep_rect = self.regions.single("opponent_ep")
+        self_ep = (
+            ocr_reader.read_evolution_points(self.regions.crop(frame, self_ep_rect))
+            if self_ep_rect is not None
+            else None
+        )
+        opponent_ep = (
+            ocr_reader.read_evolution_points(self.regions.crop(frame, opponent_ep_rect))
+            if opponent_ep_rect is not None
+            else None
+        )
+        if self_ep is not None or opponent_ep is not None:
+            self.tracker.set_ep(
+                self_ep if self_ep is not None else self.tracker.state.self_ep,
+                opponent_ep if opponent_ep is not None else self.tracker.state.opponent_ep,
+            )
+
         self_life_rect = self.regions.single("self_life")
         opponent_life_rect = self.regions.single("opponent_life")
         self_life = (
@@ -150,7 +174,14 @@ class MonitorApp:
         self.tracker.set_opponent_board(self._build_board_units(opponent_board_ids))
 
         turn = self.tracker.current_turn or 1
-        new_actions = self.event_detector.update(turn, self_hand_ids, self_board_ids, opponent_board_ids)
+        new_actions = self.event_detector.update(
+            turn,
+            self_hand_ids,
+            self_board_ids,
+            opponent_board_ids,
+            self_ep=self.tracker.state.self_ep,
+            opponent_ep=self.tracker.state.opponent_ep,
+        )
 
         for action in new_actions:
             card = self.database.get(action.card_id) if action.card_id else None
@@ -159,9 +190,13 @@ class MonitorApp:
             self.tracker.record_action(action)
             if self.match_log is not None and self.match_id is not None:
                 self.match_log.log_action(self.match_id, action)
-            logger.info(
-                "[turn %s] %s が %s をプレイ", action.turn, action.player.value, action.card_name or action.card_id
-            )
+            if action.action_type == ActionType.PLAY_CARD:
+                logger.info(
+                    "[turn %s] %s が %s をプレイ", action.turn, action.player.value, action.card_name or action.card_id
+                )
+            elif action.action_type in (ActionType.EVOLVE, ActionType.SUPER_EVOLVE):
+                label = "超進化" if action.action_type == ActionType.SUPER_EVOLVE else "進化"
+                logger.info("[turn %s] %s が%sしました", action.turn, action.player.value, label)
 
         if any(a.player == Player.OPPONENT for a in new_actions):
             predictions = predict_opponent_next_actions(self.tracker, self.database, self.match_log)
