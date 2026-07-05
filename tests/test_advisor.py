@@ -33,6 +33,44 @@ def test_no_lethal_when_units_cannot_attack():
     assert not any("リーサル" in r.title for r in recs)
 
 
+def test_opponent_lethal_warning_when_opponent_board_can_kill_self():
+    tracker = MatchTracker()
+    tracker.state.self_life = 10
+    tracker.state.opponent_board = [
+        BoardUnit(card_id="e1", name="敵ユニットA", atk=6, hp=4, can_attack=True),
+        BoardUnit(card_id="e2", name="敵ユニットB", atk=5, hp=3, can_attack=True),
+    ]
+
+    recs = recommend_actions(tracker, hand=[])
+
+    warning = next(r for r in recs if "相手のリーサルに警戒" in r.title)
+    assert warning.priority == 0  # 自分のリーサルと同じ最優先
+    assert "11" in warning.detail
+    assert "10" in warning.detail
+
+
+def test_no_opponent_lethal_warning_when_below_self_life():
+    tracker = MatchTracker()
+    tracker.state.self_life = 20
+    tracker.state.opponent_board = [BoardUnit(card_id="e1", name="敵", atk=3, hp=3, can_attack=True)]
+
+    recs = recommend_actions(tracker, hand=[])
+
+    assert not any("相手のリーサルに警戒" in r.title for r in recs)
+
+
+def test_no_opponent_lethal_warning_when_opponent_units_cannot_attack():
+    tracker = MatchTracker()
+    tracker.state.self_life = 5
+    tracker.state.opponent_board = [
+        BoardUnit(card_id="e1", name="疲労中の敵", atk=20, hp=4, can_attack=False)
+    ]
+
+    recs = recommend_actions(tracker, hand=[])
+
+    assert not any("相手のリーサルに警戒" in r.title for r in recs)
+
+
 def test_favorable_trade_is_suggested():
     tracker = MatchTracker()
     tracker.state.opponent_life = 20

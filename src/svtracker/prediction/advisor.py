@@ -2,10 +2,11 @@
 
 完全なゲーム木探索ではなく、以下の分かりやすいルールに基づく:
   1. リーサル(相手を倒しきれるか)の検出
-  2. 損をしない/得するフォロワートレードの検出
-  3. 手札を使ってPPを無駄なく使う組み合わせの提案(PP回復カードによる上乗せも考慮)
-  4. (対戦記録が十分あれば)過去にプレイして勝率が高かったカードの提示
-  5. PP上限を増やすカード・進化ポイントを回復するカードの優先プレイ提案
+  2. 相手目線のリーサル(このターン凌がないと次に倒されるか)の警戒
+  3. 損をしない/得するフォロワートレードの検出
+  4. 手札を使ってPPを無駄なく使う組み合わせの提案(PP回復カードによる上乗せも考慮)
+  5. (対戦記録が十分あれば)過去にプレイして勝率が高かったカードの提示
+  6. PP上限を増やすカード・進化ポイントを回復するカードの優先プレイ提案
 """
 from __future__ import annotations
 
@@ -42,6 +43,21 @@ def recommend_actions(
                     f"攻撃可能な盤面の合計打点 {attackable_power} が"
                     f"相手ライフ {state.opponent_life} 以上です。ブロッカーの有無を確認し、"
                     "全体攻撃で勝利できるか確認してください。"
+                ),
+                priority=0,
+            )
+        )
+
+    opponent_attackable_power = sum(u.atk for u in state.opponent_board if u.can_attack)
+    if state.self_life > 0 and opponent_attackable_power >= state.self_life:
+        recs.append(
+            Recommendation(
+                title="相手のリーサルに警戒",
+                detail=(
+                    f"相手の盤面の合計攻撃力 {opponent_attackable_power} が"
+                    f"あなたのライフ {state.self_life} 以上です。次の相手ターンにリーサルされる"
+                    "可能性があるため、ブロッカーとして残せるフォロワーを温存する、"
+                    "除去やライフ回復の手段を優先するなど、リーサルケアを意識してください。"
                 ),
                 priority=0,
             )
