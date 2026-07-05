@@ -150,6 +150,10 @@ def _parse_card_common(common: dict) -> Optional[Card]:
     # 実際のフィールド名を確認したら、ここのキー名を実データに合わせて調整すること。
     card_set_id = common.get("card_set_id")
 
+    # max_pp_boost/pp_recover/ep_recoverはカード効果(能力テキスト)由来のデータで、
+    # このAPIのようなカード基礎情報レスポンスには構造化された形で含まれていないとみられる。
+    # そのため常に0(効果なし扱い)のままにし、`import-cards`のCSVでの手動指定に委ねる
+    # (cards/models.py の Card.max_pp_boost 等のコメント、READMEも参照)。
     return Card(
         card_id=str(card_id),
         name=name,
@@ -188,9 +192,15 @@ def _download_card_image(
 def import_from_local(images_dir: Path, metadata_csv: Path, hash_size: int = 16) -> CardDatabase:
     """手元のカード画像フォルダ + メタ情報CSVからDBを構築する.
 
-    CSVヘッダ: card_id,name,clan,cost,card_type,rarity,filename[,base_atk,base_hp,card_set_id]
+    CSVヘッダ: card_id,name,clan,cost,card_type,rarity,filename
+    [,base_atk,base_hp,card_set_id,max_pp_boost,pp_recover,ep_recover]
     filename は images_dir 内の画像ファイル名。card_set_id はローテーション絞り込みに使う
     カードセット(弾)番号(省略可、無ければローテーション判定で除外されない)。
+    max_pp_boost/pp_recover/ep_recover は効果によるPP上限増加・PP回復・進化ポイント回復量
+    (省略可、いずれも既定0=効果なし)。公式サイトAPIには効果の構造化データが無いため
+    `fetch-cards` 経由では常に0になる。既に `fetch-cards` で取得済みのカードに対して
+    これらの値だけ後から補いたい場合は、`images_dir` に既存の `data/cards/` を指定し
+    filename に同じ画像(`{card_id}.png`)を指定した上で `import-cards --merge` を使う。
     """
     db = CardDatabase()
     with metadata_csv.open(encoding="utf-8-sig", newline="") as f:
@@ -206,6 +216,9 @@ def import_from_local(images_dir: Path, metadata_csv: Path, hash_size: int = 16)
                 base_atk=int(row["base_atk"]) if row.get("base_atk") else None,
                 base_hp=int(row["base_hp"]) if row.get("base_hp") else None,
                 card_set_id=int(row["card_set_id"]) if row.get("card_set_id") else None,
+                max_pp_boost=int(row["max_pp_boost"]) if row.get("max_pp_boost") else 0,
+                pp_recover=int(row["pp_recover"]) if row.get("pp_recover") else 0,
+                ep_recover=int(row["ep_recover"]) if row.get("ep_recover") else 0,
             )
             image_file = images_dir / row["filename"]
             if image_file.exists():

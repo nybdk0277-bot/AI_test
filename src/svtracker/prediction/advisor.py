@@ -3,8 +3,9 @@
 完全なゲーム木探索ではなく、以下の分かりやすいルールに基づく:
   1. リーサル(相手を倒しきれるか)の検出
   2. 損をしない/得するフォロワートレードの検出
-  3. 手札を使ってPPを無駄なく使う組み合わせの提案
+  3. 手札を使ってPPを無駄なく使う組み合わせの提案(PP回復カードによる上乗せも考慮)
   4. (対戦記録が十分あれば)過去にプレイして勝率が高かったカードの提示
+  5. PP上限を増やすカード・進化ポイントを回復するカードの優先プレイ提案
 """
 from __future__ import annotations
 
@@ -74,20 +75,25 @@ def recommend_actions(
                 )
 
     spendable_pp = state.self_pp + state.self_extra_pp
-    playable = [c for c in hand if c.cost <= spendable_pp]
+    # PP回復カードで後から使えるPPが増える可能性を見込み、単純な cost <= spendable_pp
+    # より緩い上限で候補を残す(実際にプレイできるかどうかは _best_pp_combo 側で判定する)。
+    max_possible_pp = spendable_pp + sum(c.pp_recover for c in hand)
+    playable = [c for c in hand if c.cost <= max_possible_pp]
     combo = _best_pp_combo(playable, spendable_pp)
     if combo:
         names = ", ".join(c.name for c in combo)
         used = sum(c.cost for c in combo)
-        extra_used = max(0, used - state.self_pp)
+        recovered = sum(c.pp_recover for c in combo)
+        extra_used = max(0, used - recovered - state.self_pp)
+        detail_parts = [f"{names} をプレイすると PP {used} 分を使えます"]
+        notes = []
         if extra_used > 0:
-            detail = (
-                f"{names} をプレイすると PP {used} を使い切れます"
-                f"(通常PP {state.self_pp} に加えエクストラPPを{extra_used}消費)。"
-            )
-        else:
-            detail = f"{names} をプレイすると PP {used}/{state.self_pp} を無駄なく使えます。"
-        recs.append(Recommendation(title="PP消費の提案", detail=detail, priority=2))
+            notes.append(f"エクストラPPを{extra_used}消費")
+        if recovered > 0:
+            notes.append(f"PP回復効果で{recovered}分を追加確保")
+        if notes:
+            detail_parts.append(f"({'、'.join(notes)})")
+        recs.append(Recommendation(title="PP消費の提案", detail="".join(detail_parts) + "。", priority=2))
 
     if state.self_ep > 0 and state.self_board:
         recs.append(
@@ -100,6 +106,29 @@ def recommend_actions(
                 priority=2,
             )
         )
+
+    pp_boost_cards = [c for c in playable if c.max_pp_boost > 0]
+    if pp_boost_cards:
+        names = ", ".join(f"{c.name}(PP上限+{c.max_pp_boost})" for c in pp_boost_cards)
+        recs.append(
+            Recommendation(
+                title="PP上限を増やせるカードがあります",
+                detail=f"{names}。早めにプレイするほど以降のターンで有利になりやすいので優先を検討してください。",
+                priority=1,
+            )
+        )
+
+    if state.self_ep == 0 and state.self_board:
+        ep_recover_cards = [c for c in playable if c.ep_recover > 0]
+        if ep_recover_cards:
+            names = ", ".join(f"{c.name}(EP+{c.ep_recover})" for c in ep_recover_cards)
+            recs.append(
+                Recommendation(
+                    title="進化ポイントを回復できるカードがあります",
+                    detail=f"{names}。進化を使い切っていても再度進化を検討できます。",
+                    priority=2,
+                )
+            )
 
     if match_log is not None and state.self_clan and state.opponent_clan:
         best = _best_win_rate_card(match_log, state.self_clan, state.opponent_clan, playable)
@@ -138,15 +167,23 @@ def _best_win_rate_card(
 
 
 def _best_pp_combo(cards: list[Card], pp: int) -> list[Card]:
-    """0/1ナップサック: PP以内で消費コスト合計を最大化(タイブレークは枚数優先)する組み合わせ."""
+    """0/1ナップサック: PP以内で消費コスト合計を最大化(タイブレークは枚数優先)する組み合わせ.
+
+    各カードの pp_recover(PP回復量)を「実質コスト = cost - pp_recover」として
+    予算に加算することで、回復カードを絡めた分だけ多くプレイできる組み合わせも
+    自然に候補になる(合計の実質コストが pp を超えなければ、回復分を他のカードに
+    使い回せる、という近似。実際の回復タイミング/上限は考慮しない簡易モデル)。
+    """
     if pp <= 0 or not cards:
         return []
 
     # best[budget] = (used_cost, card_count, card_indices)
+    # budgetは実質コストの累計なので、回復量が大きいカードを含めると負になり得る。
     best: dict[int, tuple[int, int, list[int]]] = {0: (0, 0, [])}
     for idx, card in enumerate(cards):
+        net_cost = card.cost - card.pp_recover
         for budget in list(best.keys()):
-            new_budget = budget + card.cost
+            new_budget = budget + net_cost
             if new_budget > pp:
                 continue
             used, count, combo = best[budget]
