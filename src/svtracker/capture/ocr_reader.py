@@ -16,11 +16,12 @@ from svtracker.game.models import Player
 logger = logging.getLogger(__name__)
 
 _warned_no_pytesseract = False
+_warned_no_tesseract_binary = False
 
 
 def _ocr_digits_string(image: Image.Image) -> Optional[str]:
-    """画像から数字主体の文字列を読み取る。pytesseract未導入なら None."""
-    global _warned_no_pytesseract
+    """画像から数字主体の文字列を読み取る。pytesseract/Tesseract本体が無ければ None."""
+    global _warned_no_pytesseract, _warned_no_tesseract_binary
     try:
         import pytesseract
     except ImportError:
@@ -35,6 +36,16 @@ def _ocr_digits_string(image: Image.Image) -> Optional[str]:
     config = "--psm 7 -c tessedit_char_whitelist=0123456789/"
     try:
         return pytesseract.image_to_string(image, config=config)
+    except pytesseract.pytesseract.TesseractNotFoundError:
+        # pytesseract本体(パッケージ)はあるが、Tesseractの実行ファイルが未インストール/
+        # PATH未設定。毎フレーム発生しうるため、_warned_no_pytesseract と同様に一度だけ警告する。
+        if not _warned_no_tesseract_binary:
+            logger.warning(
+                "Tesseract本体が見つかりません。インストールしてPATHを通すか、README記載の"
+                "手順を確認してください。ターン/PP/ライフの自動読み取りは無効になります。"
+            )
+            _warned_no_tesseract_binary = True
+        return None
     except Exception:
         logger.exception("OCR読み取りに失敗しました")
         return None

@@ -1,3 +1,6 @@
+import sys
+import types
+
 from svtracker.capture.ocr_reader import classify_active_player, parse_int_text, parse_pp_text
 from svtracker.game.models import Player
 
@@ -32,3 +35,36 @@ def test_classify_active_player_returns_none_when_too_far_from_both():
     result = classify_active_player((0, 255, 255), self_color, opponent_color, max_distance=30)
 
     assert result is None
+
+
+def _install_fake_pytesseract(monkeypatch, error_cls):
+    fake_pytesseract_submodule = types.ModuleType("pytesseract.pytesseract")
+    fake_pytesseract_submodule.TesseractNotFoundError = error_cls
+
+    fake_pytesseract = types.ModuleType("pytesseract")
+    fake_pytesseract.pytesseract = fake_pytesseract_submodule
+
+    def _raise_not_found(*_args, **_kwargs):
+        raise error_cls("tesseract is not installed or it's not in your PATH")
+
+    fake_pytesseract.image_to_string = _raise_not_found
+    monkeypatch.setitem(sys.modules, "pytesseract", fake_pytesseract)
+    monkeypatch.setitem(sys.modules, "pytesseract.pytesseract", fake_pytesseract_submodule)
+
+
+def test_ocr_digits_string_warns_once_when_tesseract_binary_missing(monkeypatch, caplog):
+    from svtracker.capture import ocr_reader
+
+    class FakeTesseractNotFoundError(Exception):
+        pass
+
+    _install_fake_pytesseract(monkeypatch, FakeTesseractNotFoundError)
+    monkeypatch.setattr(ocr_reader, "_warned_no_tesseract_binary", False)
+
+    with caplog.at_level("WARNING"):
+        assert ocr_reader._ocr_digits_string(object()) is None
+        assert ocr_reader._ocr_digits_string(object()) is None
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "Tesseract本体が見つかりません" in warnings[0].message

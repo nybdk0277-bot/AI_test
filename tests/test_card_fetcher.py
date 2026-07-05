@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock
 
+import requests
 from PIL import Image
 
 from svtracker.cards import card_fetcher
@@ -201,3 +202,46 @@ def test_download_card_image_sends_referer_to_avoid_hotlink_block(tmp_path):
 
     call_headers = session.get.call_args.kwargs["headers"]
     assert call_headers["Referer"] == "https://example.test/ja/deck/cardslist/"
+
+
+def test_fetch_from_official_site_warns_once_when_all_images_blocked(tmp_path, monkeypatch, caplog):
+    monkeypatch.setattr(card_fetcher.time, "sleep", lambda _seconds: None)
+
+    list_response = MagicMock()
+    list_response.raise_for_status.return_value = None
+    list_response.json.return_value = {
+        "data": {
+            "count": 1,
+            "sort_card_id_list": [1],
+            "card_details": {
+                "1": {
+                    "common": {
+                        "card_id": 1,
+                        "name": "A",
+                        "class": 0,
+                        "cost": 1,
+                        "type": 1,
+                        "rarity": 1,
+                        "atk": 1,
+                        "life": 1,
+                        "card_image_hash": "abc123",
+                    }
+                }
+            },
+        }
+    }
+
+    image_response = MagicMock()
+    image_response.raise_for_status.side_effect = requests.HTTPError("403 Client Error: Forbidden")
+
+    session = MagicMock()
+    session.get.side_effect = [list_response, image_response]
+
+    with caplog.at_level("WARNING"):
+        db = fetch_from_official_site(base_url="https://example.test", images_dir=tmp_path, session=session)
+
+    assert len(db) == 1
+    assert db.get("1").image_path is None
+    warnings = [r.message for r in caplog.records if r.levelname == "WARNING"]
+    assert any("すべて失敗しました" in msg for msg in warnings)
+    assert any("import-cards" in msg for msg in warnings)

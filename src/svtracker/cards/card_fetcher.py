@@ -87,6 +87,8 @@ def fetch_from_official_site(
     images_dir.mkdir(parents=True, exist_ok=True)
     db = CardDatabase()
 
+    image_attempts = 0
+    image_failures = 0
     offset = 0
     total: Optional[int] = None
     for _ in range(MAX_PAGES_SAFETY_LIMIT):
@@ -118,6 +120,8 @@ def fetch_from_official_site(
             card = _parse_card_common(common)
             if card is None:
                 continue
+            if common.get("card_image_hash"):
+                image_attempts += 1
             image_path = _download_card_image(
                 base_url, images_dir, card.card_id, common.get("card_image_hash"), session
             )
@@ -125,10 +129,30 @@ def fetch_from_official_site(
                 card.image_path = str(image_path)
                 with Image.open(image_path) as img:
                     card.phash = compute_phash_hex(img, hash_size=hash_size)
+            elif common.get("card_image_hash"):
+                image_failures += 1
             db.add(card)
 
         offset += len(page_ids)
         time.sleep(REQUEST_INTERVAL_SEC)
+
+    if image_attempts > 0 and image_failures == image_attempts:
+        logger.warning(
+            "カード画像のダウンロードが%d件すべて失敗しました。サイト側のホットリンク対策"
+            "(Referer/ヘッダーチェック)がヘッダー付与だけでは回避できていない可能性があります。"
+            "画像が無いカードはpHashが計算されず認識対象になりません。実機ブラウザの開発者ツールで"
+            "画像リクエストの実際のヘッダー/Cookieを確認するか、`import-cards` で手元に用意した"
+            "画像+CSVからカードDBを構築してください。",
+            image_failures,
+        )
+    elif image_failures > 0:
+        logger.warning(
+            "カード画像のダウンロードが%d/%d件失敗しました。失敗したカードはpHashが計算されず"
+            "認識対象になりません。`import-cards --merge` で該当カードの画像を後から補うことも"
+            "できます。",
+            image_failures,
+            image_attempts,
+        )
 
     return db
 
