@@ -130,3 +130,41 @@ def test_card_play_frequency_ignores_non_play_card_actions(tmp_path):
     assert frequency == 0.0
 
     log.close()
+
+
+def test_evolve_win_rate_counts_distinct_matches_with_evolve_or_super_evolve(tmp_path):
+    log = MatchLog(tmp_path / "matches.db")
+
+    m1 = log.start_match(self_clan="エルフ", opponent_clan="ロイヤル")
+    log.log_action(m1, Action(turn=4, player=Player.SELF, action_type=ActionType.EVOLVE))
+    log.log_action(m1, Action(turn=6, player=Player.SELF, action_type=ActionType.EVOLVE))  # 同一対戦、2重カウントしない
+    log.end_match(m1, "win")
+
+    m2 = log.start_match(self_clan="エルフ", opponent_clan="ロイヤル")
+    log.log_action(m2, Action(turn=8, player=Player.SELF, action_type=ActionType.SUPER_EVOLVE))
+    log.end_match(m2, "loss")
+
+    m3 = log.start_match(self_clan="エルフ", opponent_clan="ロイヤル")  # 進化なしの対戦は対象外
+    log.end_match(m3, "win")
+
+    stats = log.evolve_win_rate("エルフ", "ロイヤル")
+
+    assert stats.wins == 1
+    assert stats.losses == 1
+    assert stats.total == 2
+
+    log.close()
+
+
+def test_evolve_win_rate_ignores_opponent_evolve_actions(tmp_path):
+    log = MatchLog(tmp_path / "matches.db")
+
+    m1 = log.start_match(self_clan="エルフ", opponent_clan="ロイヤル")
+    log.log_action(m1, Action(turn=4, player=Player.OPPONENT, action_type=ActionType.EVOLVE))
+    log.end_match(m1, "win")
+
+    stats = log.evolve_win_rate("エルフ", "ロイヤル")
+
+    assert stats.total == 0
+
+    log.close()

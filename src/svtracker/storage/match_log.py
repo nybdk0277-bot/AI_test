@@ -198,6 +198,34 @@ class MatchLog:
         losses = sum(1 for _match_id, result in rows if result == RESULT_LOSS)
         return WinStats(wins=wins, losses=losses)
 
+    def evolve_win_rate(self, self_clan: str, opponent_clan: str) -> WinStats:
+        """指定クラス相手の対戦のうち、自分が進化/超進化を行った対戦の勝敗を集計する.
+
+        進化アクションはどのユニットに進化したかを記録していないため card_id での
+        絞り込みはできず、「その対戦中に一度でも進化したか」単位で集計する。
+        """
+        with closing(self._conn.cursor()) as cur:
+            cur.execute(
+                """SELECT DISTINCT matches.id, matches.result
+                   FROM actions JOIN matches ON actions.match_id = matches.id
+                   WHERE actions.player = ? AND actions.action_type IN (?, ?)
+                     AND matches.self_clan = ? AND matches.opponent_clan = ?
+                     AND matches.result IN (?, ?)""",
+                (
+                    Player.SELF.value,
+                    ActionType.EVOLVE.value,
+                    ActionType.SUPER_EVOLVE.value,
+                    self_clan,
+                    opponent_clan,
+                    RESULT_WIN,
+                    RESULT_LOSS,
+                ),
+            )
+            rows = cur.fetchall()
+        wins = sum(1 for _match_id, result in rows if result == RESULT_WIN)
+        losses = sum(1 for _match_id, result in rows if result == RESULT_LOSS)
+        return WinStats(wins=wins, losses=losses)
+
     def opponent_card_pool(self, opponent_clan: str, limit: int = 200) -> list[tuple[str, int]]:
         """そのクラス相手に過去プレイされたカードと、プレイされた対戦数の一覧
         (頻度が高い順)。predictorが候補を絞り込む際の材料にする。"""
