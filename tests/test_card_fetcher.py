@@ -1,7 +1,14 @@
 from unittest.mock import MagicMock
 
+from PIL import Image
+
 from svtracker.cards import card_fetcher
-from svtracker.cards.card_fetcher import _download_card_image, _parse_card_common, fetch_from_official_site
+from svtracker.cards.card_fetcher import (
+    _download_card_image,
+    _parse_card_common,
+    fetch_from_official_site,
+    import_from_local,
+)
 
 
 def test_parse_card_common_maps_known_codes():
@@ -151,6 +158,33 @@ def test_fetch_from_official_site_stops_when_no_ids_returned(tmp_path, monkeypat
 
     assert len(db) == 0
     assert session.get.call_count == 1
+
+
+def test_import_from_local_parses_pp_ep_effect_columns(tmp_path):
+    images_dir = tmp_path / "images"
+    images_dir.mkdir()
+    Image.new("RGB", (32, 32), color="red").save(images_dir / "1.png")
+    Image.new("RGB", (32, 32), color="blue").save(images_dir / "2.png")
+
+    csv_path = tmp_path / "cards.csv"
+    csv_path.write_text(
+        "card_id,name,clan,cost,card_type,rarity,filename,max_pp_boost,pp_recover,ep_recover\n"
+        "1,PPブーストカード,ニュートラル,2,フォロワー,,1.png,1,0,0\n"
+        "2,普通のカード,ニュートラル,2,フォロワー,,2.png,,,\n",
+        encoding="utf-8",
+    )
+
+    db = import_from_local(images_dir, csv_path)
+
+    boosted = db.get("1")
+    assert boosted.max_pp_boost == 1
+    assert boosted.pp_recover == 0
+    assert boosted.ep_recover == 0
+
+    plain = db.get("2")
+    assert plain.max_pp_boost == 0
+    assert plain.pp_recover == 0
+    assert plain.ep_recover == 0
 
 
 def test_download_card_image_sends_referer_to_avoid_hotlink_block(tmp_path):
