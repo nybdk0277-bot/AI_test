@@ -85,3 +85,48 @@ def test_card_win_rate_counts_distinct_matches_where_card_was_played(tmp_path):
     assert stats.total == 2
 
     log.close()
+
+
+def test_card_win_rate_ignores_non_play_card_actions_with_same_card_id(tmp_path):
+    log = MatchLog(tmp_path / "matches.db")
+
+    m1 = log.start_match(self_clan="エルフ", opponent_clan="ロイヤル")
+    # 盤面から離れた(破壊された)だけで、プレイはしていないカード
+    log.log_action(m1, Action(turn=3, player=Player.SELF, action_type=ActionType.UNIT_DESTROYED, card_id="c1"))
+    log.end_match(m1, "win")
+
+    stats = log.card_win_rate("エルフ", "ロイヤル", "c1")
+
+    assert stats.total == 0
+
+    log.close()
+
+
+def test_opponent_card_pool_ignores_non_play_card_actions(tmp_path):
+    log = MatchLog(tmp_path / "matches.db")
+
+    m1 = log.start_match(self_clan="エルフ", opponent_clan="ロイヤル")
+    log.log_action(m1, Action(turn=3, player=Player.OPPONENT, action_type=ActionType.UNIT_DESTROYED, card_id="c1"))
+    log.log_action(m1, Action(turn=4, player=Player.OPPONENT, action_type=ActionType.PLAY_CARD, card_id="c2"))
+    log.end_match(m1, "win")
+
+    pool = log.opponent_card_pool("ロイヤル")
+
+    assert ("c2", 1) in pool
+    assert all(card_id != "c1" for card_id, _count in pool)
+
+    log.close()
+
+
+def test_card_play_frequency_ignores_non_play_card_actions(tmp_path):
+    log = MatchLog(tmp_path / "matches.db")
+
+    m1 = log.start_match(self_clan="エルフ", opponent_clan="ロイヤル")
+    log.log_action(m1, Action(turn=3, player=Player.OPPONENT, action_type=ActionType.UNIT_DESTROYED, card_id="c1"))
+    log.end_match(m1, "win")
+
+    frequency = log.card_play_frequency("ロイヤル", "c1", turn=3)
+
+    assert frequency == 0.0
+
+    log.close()

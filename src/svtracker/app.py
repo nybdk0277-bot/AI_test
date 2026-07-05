@@ -219,6 +219,9 @@ class MonitorApp:
             opponent_board_ids,
             self_ep=self.tracker.state.self_ep,
             opponent_ep=self.tracker.state.opponent_ep,
+            self_life=self.tracker.state.self_life,
+            opponent_life=self.tracker.state.opponent_life,
+            active_player=self.tracker.state.active_player,
         )
 
         for action in new_actions:
@@ -235,6 +238,17 @@ class MonitorApp:
             elif action.action_type in (ActionType.EVOLVE, ActionType.SUPER_EVOLVE):
                 label = "超進化" if action.action_type == ActionType.SUPER_EVOLVE else "進化"
                 logger.info("[turn %s] %s が%sしました", action.turn, action.player.value, label)
+            elif action.action_type == ActionType.UNIT_DESTROYED:
+                logger.info(
+                    "[turn %s] %s の %s が盤面から離れました(破壊/除去など)",
+                    action.turn,
+                    action.player.value,
+                    action.card_name or action.card_id,
+                )
+            elif action.action_type == ActionType.LIFE_CHANGE:
+                logger.info("[turn %s] %s のライフが変化: %s", action.turn, action.player.value, action.detail)
+            elif action.action_type == ActionType.END_TURN:
+                logger.info("[turn %s] %s のターンが終了しました", action.turn, action.player.value)
 
         if any(a.player == Player.OPPONENT for a in new_actions):
             predictions = predict_opponent_next_actions(

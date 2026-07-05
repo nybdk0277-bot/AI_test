@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from svtracker.game.models import Action, Player
+from svtracker.game.models import Action, ActionType, Player
 
 # end_match() の result に使う正規値。それ以外の文字列("unknown"等)は
 # 勝率集計(WinStats)の対象から除外される。
@@ -142,9 +142,10 @@ class MatchLog:
                    FROM actions JOIN matches ON actions.match_id = matches.id
                    WHERE matches.opponent_clan = ?
                      AND actions.player = ?
+                     AND actions.action_type = ?
                      AND actions.card_id = ?
                      AND actions.turn BETWEEN ? AND ?""",
-                (opponent_clan, Player.OPPONENT.value, card_id, turn - window, turn + window),
+                (opponent_clan, Player.OPPONENT.value, ActionType.PLAY_CARD.value, card_id, turn - window, turn + window),
             )
             count = cur.fetchone()[0]
         return min(1.0, count / total)
@@ -179,10 +180,18 @@ class MatchLog:
             cur.execute(
                 """SELECT DISTINCT matches.id, matches.result
                    FROM actions JOIN matches ON actions.match_id = matches.id
-                   WHERE actions.player = ? AND actions.card_id = ?
+                   WHERE actions.player = ? AND actions.action_type = ? AND actions.card_id = ?
                      AND matches.self_clan = ? AND matches.opponent_clan = ?
                      AND matches.result IN (?, ?)""",
-                (Player.SELF.value, card_id, self_clan, opponent_clan, RESULT_WIN, RESULT_LOSS),
+                (
+                    Player.SELF.value,
+                    ActionType.PLAY_CARD.value,
+                    card_id,
+                    self_clan,
+                    opponent_clan,
+                    RESULT_WIN,
+                    RESULT_LOSS,
+                ),
             )
             rows = cur.fetchall()
         wins = sum(1 for _match_id, result in rows if result == RESULT_WIN)
@@ -196,10 +205,11 @@ class MatchLog:
             cur.execute(
                 """SELECT actions.card_id, COUNT(DISTINCT actions.match_id) AS n
                    FROM actions JOIN matches ON actions.match_id = matches.id
-                   WHERE matches.opponent_clan = ? AND actions.player = ? AND actions.card_id IS NOT NULL
+                   WHERE matches.opponent_clan = ? AND actions.player = ?
+                     AND actions.action_type = ? AND actions.card_id IS NOT NULL
                    GROUP BY actions.card_id
                    ORDER BY n DESC
                    LIMIT ?""",
-                (opponent_clan, Player.OPPONENT.value, limit),
+                (opponent_clan, Player.OPPONENT.value, ActionType.PLAY_CARD.value, limit),
             )
             return list(cur.fetchall())

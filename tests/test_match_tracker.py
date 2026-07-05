@@ -122,6 +122,71 @@ def test_event_detector_ignores_ep_increase_and_missing_observations():
     assert actions == []
 
 
+def test_event_detector_detects_unit_destroyed_when_card_leaves_board():
+    detector = EventDetector()
+    detector.update(turn=2, self_hand_ids=[], self_board_ids=["A"], opponent_board_ids=["X"])
+
+    actions = detector.update(turn=3, self_hand_ids=[], self_board_ids=[], opponent_board_ids=["X"])
+
+    assert len(actions) == 1
+    assert actions[0].player == Player.SELF
+    assert actions[0].card_id == "A"
+    assert actions[0].action_type == ActionType.UNIT_DESTROYED
+
+
+def test_event_detector_detects_life_change_for_both_players():
+    detector = EventDetector()
+    detector.update(
+        turn=1, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[], self_life=20, opponent_life=20
+    )
+
+    actions = detector.update(
+        turn=2, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[], self_life=17, opponent_life=22
+    )
+
+    by_player = {a.player: a for a in actions}
+    assert len(actions) == 2
+    assert by_player[Player.SELF].action_type == ActionType.LIFE_CHANGE
+    assert "-3" in by_player[Player.SELF].detail
+    assert by_player[Player.OPPONENT].action_type == ActionType.LIFE_CHANGE
+    assert "+2" in by_player[Player.OPPONENT].detail
+
+
+def test_event_detector_ignores_life_change_on_first_observation():
+    detector = EventDetector()
+
+    actions = detector.update(
+        turn=1, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[], self_life=20, opponent_life=20
+    )
+
+    assert actions == []
+
+
+def test_event_detector_detects_end_turn_when_turn_changes():
+    detector = EventDetector()
+    detector.update(
+        turn=1, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[], active_player=Player.SELF
+    )
+
+    actions = detector.update(
+        turn=2, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[], active_player=Player.OPPONENT
+    )
+
+    end_turn_actions = [a for a in actions if a.action_type == ActionType.END_TURN]
+    assert len(end_turn_actions) == 1
+    assert end_turn_actions[0].turn == 1
+    assert end_turn_actions[0].player == Player.SELF  # ターン1で手番だった側が終了したとみなす
+
+
+def test_event_detector_no_end_turn_without_active_player_info():
+    detector = EventDetector()
+    detector.update(turn=1, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[])
+
+    actions = detector.update(turn=2, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[])
+
+    assert not any(a.action_type == ActionType.END_TURN for a in actions)
+
+
 def test_match_tracker_set_extra_pp_and_ep():
     tracker = MatchTracker()
 
