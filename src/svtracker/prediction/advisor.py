@@ -4,7 +4,8 @@
   1. リーサル(相手を倒しきれるか)の検出
   2. 相手目線のリーサル(このターン凌がないと次に倒されるか)の警戒
   3. 損をしない/得するフォロワートレードの検出
-  4. 手札を使ってPPを無駄なく使う組み合わせの提案(PP回復カードによる上乗せも考慮)
+  4. 手札を使ってPPを無駄なく使う組み合わせの提案(PP回復カードによる上乗せ、
+     対戦記録が十分あれば過去の勝率による優先度づけも考慮)
   5. (対戦記録が十分あれば)過去にプレイして勝率が高かったカードの提示
   6. PP上限を増やすカード・進化ポイントを回復するカードの優先プレイ提案
 """
@@ -95,7 +96,13 @@ def recommend_actions(
     # より緩い上限で候補を残す(実際にプレイできるかどうかは _best_pp_combo 側で判定する)。
     max_possible_pp = spendable_pp + sum(c.pp_recover for c in hand)
     playable = [c for c in hand if c.cost <= max_possible_pp]
-    combo = _best_pp_combo(playable, spendable_pp)
+
+    win_stats_by_id: dict[str, WinStats] = {}
+    if match_log is not None and state.self_clan and state.opponent_clan:
+        win_stats_by_id = _card_win_stats(match_log, state.self_clan, state.opponent_clan, playable)
+    win_rate_scores = {card_id: stats.win_rate - 0.5 for card_id, stats in win_stats_by_id.items()}
+
+    combo = _best_pp_combo(playable, spendable_pp, win_rate_scores)
     if combo:
         names = ", ".join(c.name for c in combo)
         used = sum(c.cost for c in combo)
@@ -107,6 +114,8 @@ def recommend_actions(
             notes.append(f"エクストラPPを{extra_used}消費")
         if recovered > 0:
             notes.append(f"PP回復効果で{recovered}分を追加確保")
+        if any(c.card_id in win_stats_by_id for c in combo):
+            notes.append("過去の勝率データを考慮")
         if notes:
             detail_parts.append(f"({'、'.join(notes)})")
         recs.append(Recommendation(title="PP消費の提案", detail="".join(detail_parts) + "。", priority=2))
@@ -146,44 +155,61 @@ def recommend_actions(
                 )
             )
 
-    if match_log is not None and state.self_clan and state.opponent_clan:
-        best = _best_win_rate_card(match_log, state.self_clan, state.opponent_clan, playable)
-        if best is not None:
-            card, stats = best
-            recs.append(
-                Recommendation(
-                    title=f"勝率の高いカード: {card.name}",
-                    detail=(
-                        f"{state.opponent_clan}相手に{card.name}をプレイした過去{stats.total}戦の"
-                        f"勝率は{stats.win_rate:.0%}でした。優先してプレイを検討してください。"
-                    ),
-                    priority=1,
-                )
+    best_by_win_rate = _best_card_by_win_rate(win_stats_by_id, playable)
+    if best_by_win_rate is not None:
+        card, stats = best_by_win_rate
+        recs.append(
+            Recommendation(
+                title=f"勝率の高いカード: {card.name}",
+                detail=(
+                    f"{state.opponent_clan}相手に{card.name}をプレイした過去{stats.total}戦の"
+                    f"勝率は{stats.win_rate:.0%}でした。優先してプレイを検討してください。"
+                ),
+                priority=1,
             )
+        )
 
     recs.sort(key=lambda r: r.priority)
     return recs
 
 
-def _best_win_rate_card(
-    match_log: MatchLog, self_clan: str, opponent_clan: str, playable: list[Card]
-) -> Optional[tuple[Card, WinStats]]:
-    """現在プレイ可能な手札の中で、過去の勝率が最も高いカードを選ぶ.
+def _card_win_stats(
+    match_log: MatchLog, self_clan: str, opponent_clan: str, cards: list[Card]
+) -> dict[str, WinStats]:
+    """手札の各カードについて、対戦数が十分な(MIN_WIN_RATE_SAMPLES以上の)勝敗記録を集める.
 
-    対戦数が MIN_WIN_RATE_SAMPLES 未満のカードはノイズが大きいため候補にしない。
+    ここで集めた結果は「勝率の高いカード」の提示だけでなく、PP消費の組み合わせ選択
+    (_best_pp_combo)でも共通して使う。
     """
+    stats_by_id: dict[str, WinStats] = {}
+    for card in cards:
+        stats = match_log.card_win_rate(self_clan, opponent_clan, card.card_id)
+        if stats.total >= MIN_WIN_RATE_SAMPLES:
+            stats_by_id[card.card_id] = stats
+    return stats_by_id
+
+
+def _best_card_by_win_rate(
+    win_stats_by_id: dict[str, WinStats], playable: list[Card]
+) -> Optional[tuple[Card, WinStats]]:
+    """現在プレイ可能な手札の中で、過去の勝率が最も高いカードを選ぶ."""
     best = None
     for card in playable:
-        stats = match_log.card_win_rate(self_clan, opponent_clan, card.card_id)
-        if stats.total < MIN_WIN_RATE_SAMPLES:
+        stats = win_stats_by_id.get(card.card_id)
+        if stats is None:
             continue
         if best is None or stats.win_rate > best[1].win_rate:
             best = (card, stats)
     return best
 
 
-def _best_pp_combo(cards: list[Card], pp: int) -> list[Card]:
-    """0/1ナップサック: PP以内で消費コスト合計を最大化(タイブレークは枚数優先)する組み合わせ.
+def _best_pp_combo(cards: list[Card], pp: int, win_rate_scores: Optional[dict[str, float]] = None) -> list[Card]:
+    """PP以内でプレイする組み合わせを選ぶ0/1ナップサック.
+
+    優先順位は (1) 過去の勝率スコア合計 (2) 消費コスト合計 (3) 枚数、の順。
+    win_rate_scores はカードごとの「勝率 - 0.5」(データが無いカードは0扱い)で、
+    対戦記録が無い/少ない場合は全カード0になり、実質「消費コスト最大化」のみの
+    従来どおりの挙動になる。
 
     各カードの pp_recover(PP回復量)を「実質コスト = cost - pp_recover」として
     予算に加算することで、回復カードを絡めた分だけ多くプレイできる組み合わせも
@@ -192,21 +218,23 @@ def _best_pp_combo(cards: list[Card], pp: int) -> list[Card]:
     """
     if pp <= 0 or not cards:
         return []
+    win_rate_scores = win_rate_scores or {}
 
-    # best[budget] = (used_cost, card_count, card_indices)
+    # best[budget] = (win_rate_score_sum, used_cost, card_count, card_indices)
     # budgetは実質コストの累計なので、回復量が大きいカードを含めると負になり得る。
-    best: dict[int, tuple[int, int, list[int]]] = {0: (0, 0, [])}
+    best: dict[int, tuple[float, int, int, list[int]]] = {0: (0.0, 0, 0, [])}
     for idx, card in enumerate(cards):
         net_cost = card.cost - card.pp_recover
+        card_score = win_rate_scores.get(card.card_id, 0.0)
         for budget in list(best.keys()):
             new_budget = budget + net_cost
             if new_budget > pp:
                 continue
-            used, count, combo = best[budget]
-            candidate = (used + card.cost, count + 1, combo + [idx])
+            score, used, count, combo = best[budget]
+            candidate = (score + card_score, used + card.cost, count + 1, combo + [idx])
             existing = best.get(new_budget)
-            if existing is None or (candidate[0], candidate[1]) > (existing[0], existing[1]):
+            if existing is None or candidate[:3] > existing[:3]:
                 best[new_budget] = candidate
 
-    best_budget = max(best, key=lambda b: (best[b][0], best[b][1]))
-    return [cards[i] for i in best[best_budget][2]]
+    best_budget = max(best, key=lambda b: best[b][:3])
+    return [cards[i] for i in best[best_budget][3]]

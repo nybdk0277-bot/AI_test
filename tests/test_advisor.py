@@ -187,3 +187,41 @@ def test_no_win_rate_recommendation_without_match_log():
     recs = recommend_actions(tracker, hand=hand, match_log=None)
 
     assert not any("勝率の高いカード" in r.title for r in recs)
+
+
+def test_pp_combo_prefers_card_with_better_win_rate_over_pp_tie(tmp_path):
+    log = MatchLog(tmp_path / "matches.db")
+    _seed_card_results(log, "エルフ", "ロイヤル", "a", ["win", "win", "win", "loss"])  # 75%
+
+    tracker = MatchTracker(self_clan="エルフ", opponent_clan="ロイヤル")
+    tracker.state.self_pp = 2
+    hand = [
+        # 意図的にデータ無しカードを先に置く: 勝率データが無ければ最初のカードが
+        # タイブレークで勝つはず(同コストのため)。勝率データがあれば逆転する。
+        Card(card_id="b", name="データ無しカード", clan="ニュートラル", cost=2, card_type="フォロワー"),
+        Card(card_id="a", name="勝率高いカード", clan="ニュートラル", cost=2, card_type="フォロワー"),
+    ]
+
+    recs = recommend_actions(tracker, hand=hand, match_log=log)
+
+    pp_rec = next(r for r in recs if r.title == "PP消費の提案")
+    assert "勝率高いカード" in pp_rec.detail
+    assert "データ無しカード" not in pp_rec.detail
+    assert "過去の勝率データを考慮" in pp_rec.detail
+
+    log.close()
+
+
+def test_pp_combo_ignores_win_rate_without_match_log():
+    tracker = MatchTracker(self_clan="エルフ", opponent_clan="ロイヤル")
+    tracker.state.self_pp = 2
+    hand = [
+        Card(card_id="b", name="データ無しカード", clan="ニュートラル", cost=2, card_type="フォロワー"),
+        Card(card_id="a", name="もう一枚のカード", clan="ニュートラル", cost=2, card_type="フォロワー"),
+    ]
+
+    recs = recommend_actions(tracker, hand=hand, match_log=None)
+
+    pp_rec = next(r for r in recs if r.title == "PP消費の提案")
+    assert "データ無しカード" in pp_rec.detail  # match_logが無ければ従来どおり最初のカードが選ばれる
+    assert "過去の勝率データを考慮" not in pp_rec.detail
