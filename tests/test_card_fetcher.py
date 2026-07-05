@@ -122,10 +122,11 @@ def test_fetch_from_official_site_paginates_until_total_reached(tmp_path, monkey
         }
     }
 
-    responses = [MagicMock(), MagicMock()]
-    responses[0].json.return_value = page1
-    responses[1].json.return_value = page2
-    for resp in responses:
+    prime_response = MagicMock()
+    responses = [prime_response, MagicMock(), MagicMock()]
+    responses[1].json.return_value = page1
+    responses[2].json.return_value = page2
+    for resp in responses[1:]:
         resp.raise_for_status.return_value = None
 
     session = MagicMock()
@@ -136,10 +137,10 @@ def test_fetch_from_official_site_paginates_until_total_reached(tmp_path, monkey
     assert len(db) == 2
     assert db.get("1").name == "A"
     assert db.get("2").name == "B"
-    assert session.get.call_count == 2
+    assert session.get.call_count == 3  # セッションCookie確立の1回 + APIページング2回
 
-    first_params = session.get.call_args_list[0].kwargs["params"]
-    second_params = session.get.call_args_list[1].kwargs["params"]
+    first_params = session.get.call_args_list[1].kwargs["params"]
+    second_params = session.get.call_args_list[2].kwargs["params"]
     assert first_params["offset"] == 0
     assert second_params["offset"] == 1
 
@@ -158,7 +159,7 @@ def test_fetch_from_official_site_stops_when_no_ids_returned(tmp_path, monkeypat
     db = fetch_from_official_site(base_url="https://example.test", images_dir=tmp_path, session=session)
 
     assert len(db) == 0
-    assert session.get.call_count == 1
+    assert session.get.call_count == 2  # セッションCookie確立の1回 + API呼び出し1回
 
 
 def test_import_from_local_parses_pp_ep_effect_columns(tmp_path):
@@ -234,8 +235,9 @@ def test_fetch_from_official_site_warns_once_when_all_images_blocked(tmp_path, m
     image_response = MagicMock()
     image_response.raise_for_status.side_effect = requests.HTTPError("403 Client Error: Forbidden")
 
+    prime_response = MagicMock()
     session = MagicMock()
-    session.get.side_effect = [list_response, image_response]
+    session.get.side_effect = [prime_response, list_response, image_response]
 
     with caplog.at_level("WARNING"):
         db = fetch_from_official_site(base_url="https://example.test", images_dir=tmp_path, session=session)
@@ -245,3 +247,38 @@ def test_fetch_from_official_site_warns_once_when_all_images_blocked(tmp_path, m
     warnings = [r.message for r in caplog.records if r.levelname == "WARNING"]
     assert any("すべて失敗しました" in msg for msg in warnings)
     assert any("import-cards" in msg for msg in warnings)
+
+
+def test_fetch_from_official_site_primes_session_cookies_before_api_call(tmp_path, monkeypatch):
+    monkeypatch.setattr(card_fetcher.time, "sleep", lambda _seconds: None)
+
+    empty_page = {"data": {"count": 0, "sort_card_id_list": [], "card_details": {}}}
+    response = MagicMock()
+    response.json.return_value = empty_page
+    response.raise_for_status.return_value = None
+
+    session = MagicMock()
+    session.get.return_value = response
+
+    fetch_from_official_site(base_url="https://example.test", images_dir=tmp_path, session=session)
+
+    prime_call = session.get.call_args_list[0]
+    assert prime_call.args[0] == "https://example.test/ja/deck/cardslist/"
+    assert "params" not in prime_call.kwargs
+
+
+def test_fetch_from_official_site_continues_when_cookie_priming_fails(tmp_path, monkeypatch):
+    monkeypatch.setattr(card_fetcher.time, "sleep", lambda _seconds: None)
+
+    empty_page = {"data": {"count": 0, "sort_card_id_list": [], "card_details": {}}}
+    api_response = MagicMock()
+    api_response.json.return_value = empty_page
+    api_response.raise_for_status.return_value = None
+
+    session = MagicMock()
+    session.get.side_effect = [requests.ConnectionError("boom"), api_response]
+
+    db = fetch_from_official_site(base_url="https://example.test", images_dir=tmp_path, session=session)
+
+    assert len(db) == 0
+    assert session.get.call_count == 2
