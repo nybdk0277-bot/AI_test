@@ -143,6 +143,45 @@ def _seed_card_results(log: MatchLog, self_clan: str, opponent_clan: str, card_i
         log.end_match(match_id, result)
 
 
+def _seed_evolve_results(log: MatchLog, self_clan: str, opponent_clan: str, results: list[str]) -> None:
+    for result in results:
+        match_id = log.start_match(self_clan=self_clan, opponent_clan=opponent_clan)
+        log.log_action(match_id, Action(turn=4, player=Player.SELF, action_type=ActionType.EVOLVE))
+        log.end_match(match_id, result)
+
+
+def test_evolution_suggestion_includes_win_rate_when_data_available(tmp_path):
+    log = MatchLog(tmp_path / "matches.db")
+    _seed_evolve_results(log, "エルフ", "ロイヤル", ["win", "win", "loss"])  # 67%
+
+    tracker = MatchTracker(self_clan="エルフ", opponent_clan="ロイヤル")
+    tracker.state.self_ep = 2
+    tracker.set_self_board([BoardUnit(card_id="1", name="味方", atk=2, hp=2, can_attack=True)])
+
+    recs = recommend_actions(tracker, hand=[], match_log=log)
+
+    rec = next(r for r in recs if "進化ポイント" in r.title)
+    assert "67%" in rec.detail
+
+    log.close()
+
+
+def test_evolution_suggestion_omits_win_rate_with_too_few_samples(tmp_path):
+    log = MatchLog(tmp_path / "matches.db")
+    _seed_evolve_results(log, "エルフ", "ロイヤル", ["win"])  # 合計1戦 < MIN_WIN_RATE_SAMPLES
+
+    tracker = MatchTracker(self_clan="エルフ", opponent_clan="ロイヤル")
+    tracker.state.self_ep = 2
+    tracker.set_self_board([BoardUnit(card_id="1", name="味方", atk=2, hp=2, can_attack=True)])
+
+    recs = recommend_actions(tracker, hand=[], match_log=log)
+
+    rec = next(r for r in recs if "進化ポイント" in r.title)
+    assert "%" not in rec.detail
+
+    log.close()
+
+
 def test_recommends_highest_win_rate_playable_card(tmp_path):
     log = MatchLog(tmp_path / "matches.db")
     _seed_card_results(log, "エルフ", "ロイヤル", "a", ["win", "win", "loss"])  # 67%
