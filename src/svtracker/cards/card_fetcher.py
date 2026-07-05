@@ -86,6 +86,7 @@ def fetch_from_official_site(
     session = session or requests.Session()
     images_dir.mkdir(parents=True, exist_ok=True)
     db = CardDatabase()
+    _prime_session_cookies(base_url, session)
 
     image_attempts = 0
     image_failures = 0
@@ -155,6 +156,21 @@ def fetch_from_official_site(
         )
 
     return db
+
+
+def _prime_session_cookies(base_url: str, session: requests.Session) -> None:
+    """カード一覧ページを一度読み込み、ブラウザ同様にセッションCookieを確立する.
+
+    画像CDNのホットリンク対策がReferer/UAヘッダーだけでなくセッションCookieの有無も
+    見ている場合、APIをいきなり叩くだけではCookieが無く403になる可能性がある。
+    ここで失敗しても致命的ではない(単にCookie無しで以降の取得を試みるだけ)ため、
+    例外は握りつぶして続行する。
+    """
+    url = f"{base_url.rstrip('/')}{CARD_LIST_PAGE_PATH}"
+    try:
+        session.get(url, headers=REQUEST_HEADERS, timeout=15)
+    except requests.RequestException:
+        logger.debug("failed to prime session cookies from %s", url, exc_info=True)
 
 
 def _parse_card_common(common: dict) -> Optional[Card]:
