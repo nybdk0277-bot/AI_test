@@ -60,6 +60,39 @@ def test_predictor_without_history_falls_back_to_curve_and_novelty(tmp_path):
     assert all(p.card.cost <= 1 for p in predictions)
 
 
+def test_predictor_uses_observed_play_cost_as_pp_floor_when_turn_is_stuck(tmp_path):
+    """ターンOCRが動かず turn=1 のままでも、相手が既にコスト3のカードをプレイして
+    いれば「相手PPは少なくとも3」とみなし、コスト3の候補が出るようになる."""
+    database = build_database()
+    tracker = MatchTracker(self_clan="エルフ", opponent_clan="ロイヤル")
+    tracker.advance_turn(Player.OPPONENT)  # turn=1 のまま進まない想定
+    tracker.record_action(
+        Action(turn=1, player=Player.OPPONENT, action_type=ActionType.PLAY_CARD, card_id="r1")
+    )
+
+    predictions = predict_opponent_next_actions(tracker, database, match_log=None, top_k=5)
+
+    assert any(p.card.cost == 3 for p in predictions), "コスト3のカードが候補に入るはず"
+    # 実測下限(3)を超えるコストは引き続き候補外
+    assert all(p.card.cost <= 3 for p in predictions)
+
+
+def test_predictor_explicit_pp_overrides_observed_floor(tmp_path):
+    database = build_database()
+    tracker = MatchTracker(self_clan="エルフ", opponent_clan="ロイヤル")
+    tracker.advance_turn(Player.OPPONENT)
+    tracker.record_action(
+        Action(turn=1, player=Player.OPPONENT, action_type=ActionType.PLAY_CARD, card_id="r1")
+    )
+
+    predictions = predict_opponent_next_actions(
+        tracker, database, match_log=None, top_k=5, opponent_available_pp=1
+    )
+
+    # 明示指定があればそちらを優先する
+    assert all(p.card.cost <= 1 for p in predictions)
+
+
 def build_rotation_database() -> CardDatabase:
     db = CardDatabase()
     db.add(Card(card_id="old1", name="旧弾カード", clan="ロイヤル", cost=1, card_type="フォロワー", card_set_id=1))
