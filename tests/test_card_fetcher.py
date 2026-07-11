@@ -201,6 +201,10 @@ def test_download_card_image_sends_referer_to_avoid_hotlink_block(tmp_path):
     assert result == tmp_path / "1.png"
     assert (tmp_path / "1.png").read_bytes() == b"fake-png-bytes"
 
+    # 言語セグメントは "ja" ではなく "jpn"(実機DevToolsで確認。"ja"は403になる)
+    requested_url = session.get.call_args.args[0]
+    assert requested_url == "https://example.test/uploads/card_image/jpn/card/abc123.png"
+
     call_headers = session.get.call_args.kwargs["headers"]
     assert call_headers["Referer"] == "https://example.test/ja/deck/cardslist/"
 
