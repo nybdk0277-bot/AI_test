@@ -1,16 +1,40 @@
 """アプリ全体の設定。
 
 `config/settings.json` があればそれを読み込み、無ければデフォルト値を使う。
-パス類はすべてリポジトリルート基準。
+パス類はすべて _default_root() が返すルート基準。
 """
 from __future__ import annotations
 
 import json
+import logging
+import os
+import sys
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Optional
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+logger = logging.getLogger(__name__)
+
+
+def _default_root() -> Path:
+    """設定・データ(カード画像/DB・対戦履歴など)の保存先ルートを決める.
+
+    開発環境(通常のPython実行)ではリポジトリルート。
+    PyInstaller等で固めた実行ファイル(sys.frozen)では __file__ が一時展開
+    ディレクトリ(--onefileでは exe終了時に削除される %TEMP%\\_MEIxxxx)を指すため、
+    そこに保存するとデータが毎回消える。またインストール先(Program Files配下)は
+    管理者権限なしでは書き込めない。そのためユーザーごとのアプリデータ
+    ディレクトリ(Windowsは %APPDATA%\\svtracker、それ以外は ~/.svtracker)を使う。
+    """
+    if getattr(sys, "frozen", False):
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            return Path(appdata) / "svtracker"
+        return Path.home() / ".svtracker"
+    return Path(__file__).resolve().parents[2]
+
+
+REPO_ROOT = _default_root()
 DEFAULT_SETTINGS_PATH = REPO_ROOT / "config" / "settings.json"
 
 
@@ -70,6 +94,9 @@ class Settings:
         self.cards_dir.mkdir(parents=True, exist_ok=True)
         self.match_db_path.parent.mkdir(parents=True, exist_ok=True)
         self.regions_path.parent.mkdir(parents=True, exist_ok=True)
+        # exe版はインストール先ではなく %APPDATA% に保存するため、どこに保存されるかを
+        # 起動時に明示しておく(「フォルダが空」と迷子になる事故を防ぐ)。
+        logger.info("データ保存先: %s (カード画像: %s)", self.data_dir, self.cards_dir)
 
     def save(self, path: Path | None = None) -> None:
         """GUIでの設定変更(手番の基準色など)を config/settings.json に書き戻す."""
