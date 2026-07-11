@@ -23,6 +23,7 @@ from svtracker.game.models import GameFormat
 from svtracker.gui.log_handler import QueueLogHandler
 from svtracker.gui.region_canvas import RegionCanvas
 from svtracker.storage.match_log import MatchLog
+from svtracker.version import full_version
 
 logger = logging.getLogger(__name__)
 
@@ -64,10 +65,11 @@ GAME_FORMAT_VALUES = {label: value for value, label in GAME_FORMAT_LABELS.items(
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("svtracker - シャドウバース ワールズビヨンド 監視ツール")
+        self.title(f"svtracker {full_version()} - シャドウバース ワールズビヨンド 監視ツール")
         self.geometry("1150x780")
         self.minsize(900, 600)
 
+        logger.info("svtracker %s", full_version())
         self.settings = Settings.load()
         self.settings.ensure_dirs()
         self.regions = (
