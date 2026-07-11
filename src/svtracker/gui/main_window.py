@@ -7,6 +7,9 @@ svtracker.app.MonitorApp / svtracker.cards.card_fetcher などをそのまま呼
 from __future__ import annotations
 
 import logging
+import os
+import subprocess
+import sys
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -126,7 +129,18 @@ class CardDbTab(ttk.Frame):
         self.app = app
 
         self.count_var = tk.StringVar()
-        ttk.Label(self, textvariable=self.count_var, font=("", 11, "bold")).pack(anchor="w", pady=(0, 12))
+        ttk.Label(self, textvariable=self.count_var, font=("", 11, "bold")).pack(anchor="w", pady=(0, 4))
+
+        # exe版はProgram Filesではなく%APPDATA%配下に保存されるため、保存先を明示して
+        # 「インストール先のdataフォルダが空」という誤認を防ぐ。
+        path_row = ttk.Frame(self)
+        path_row.pack(fill="x", pady=(0, 12))
+        ttk.Label(
+            path_row,
+            text=f"保存先: {self.app.settings.cards_dir}",
+            foreground="#888",
+        ).pack(side="left")
+        ttk.Button(path_row, text="フォルダを開く", command=self._open_cards_dir).pack(side="left", padx=8)
 
         self.merge_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
@@ -168,6 +182,20 @@ class CardDbTab(ttk.Frame):
     def _refresh_count(self) -> None:
         db = CardDatabase.load(self.app.settings.card_db_path)
         self.count_var.set(f"現在のカードDB: {len(db)} 枚")
+
+    def _open_cards_dir(self) -> None:
+        path = self.app.settings.cards_dir
+        path.mkdir(parents=True, exist_ok=True)
+        try:
+            if sys.platform == "win32":
+                os.startfile(str(path))  # noqa: S606 - 固定のローカルフォルダをExplorerで開くだけ
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(path)])
+            else:
+                subprocess.Popen(["xdg-open", str(path)])
+        except Exception:  # noqa: BLE001
+            logger.exception("フォルダを開けませんでした")
+            messagebox.showerror("エラー", f"フォルダを開けませんでした:\n{path}")
 
     def _fetch(self) -> None:
         self.status_var.set("公式サイトから取得中...(数分かかる場合があります)")
