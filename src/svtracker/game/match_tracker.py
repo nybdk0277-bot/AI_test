@@ -19,8 +19,10 @@ class MatchState:
     self_pp: int = 0
     self_max_pp: int = 0
     self_extra_pp: int = 0  # 使わなかったPPを持ち越すエクストラPP(最大2)
-    self_ep: int = 0  # 自分の進化ポイント(残り回数)
+    self_ep: int = 0  # 自分の進化ポイント(残り回数、ゲームUIでは黄色表示)
     opponent_ep: int = 0  # 相手の進化ポイント(残り回数)
+    self_sep: int = 0  # 自分の超進化ポイント(残り回数、ゲームUIでは紫表示)
+    opponent_sep: int = 0  # 相手の超進化ポイント(残り回数)
     self_hand_card_ids: set[str] = field(default_factory=set)
     self_board: list[BoardUnit] = field(default_factory=list)
     opponent_board: list[BoardUnit] = field(default_factory=list)
@@ -90,6 +92,10 @@ class MatchTracker:
     def set_ep(self, self_ep: int, opponent_ep: int) -> None:
         self.state.self_ep = self_ep
         self.state.opponent_ep = opponent_ep
+
+    def set_sep(self, self_sep: int, opponent_sep: int) -> None:
+        self.state.self_sep = self_sep
+        self.state.opponent_sep = opponent_sep
 
     def infer_clan(self, player: Player, clan: str) -> bool:
         """認識できたカードの実際のクラスから、そのプレイヤーのクラスを推測する.

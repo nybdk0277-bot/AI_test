@@ -19,6 +19,8 @@ class EventDetector:
         self._prev_opponent_board: set[str] = set()
         self._prev_self_ep: Optional[int] = None
         self._prev_opponent_ep: Optional[int] = None
+        self._prev_self_sep: Optional[int] = None
+        self._prev_opponent_sep: Optional[int] = None
         self._prev_self_life: Optional[int] = None
         self._prev_opponent_life: Optional[int] = None
         self._prev_turn: Optional[int] = None
@@ -32,6 +34,8 @@ class EventDetector:
         opponent_board_ids: list[str | None],
         self_ep: Optional[int] = None,
         opponent_ep: Optional[int] = None,
+        self_sep: Optional[int] = None,
+        opponent_sep: Optional[int] = None,
         self_life: Optional[int] = None,
         opponent_life: Optional[int] = None,
         active_player: Optional[Player] = None,
@@ -73,8 +77,20 @@ class EventDetector:
                 )
             )
 
-        actions.extend(self._detect_evolution(turn, Player.SELF, self_ep, "_prev_self_ep"))
-        actions.extend(self._detect_evolution(turn, Player.OPPONENT, opponent_ep, "_prev_opponent_ep"))
+        actions.extend(
+            self._detect_point_drop(turn, Player.SELF, self_ep, "_prev_self_ep", ActionType.EVOLVE)
+        )
+        actions.extend(
+            self._detect_point_drop(turn, Player.OPPONENT, opponent_ep, "_prev_opponent_ep", ActionType.EVOLVE)
+        )
+        actions.extend(
+            self._detect_point_drop(turn, Player.SELF, self_sep, "_prev_self_sep", ActionType.SUPER_EVOLVE)
+        )
+        actions.extend(
+            self._detect_point_drop(
+                turn, Player.OPPONENT, opponent_sep, "_prev_opponent_sep", ActionType.SUPER_EVOLVE
+            )
+        )
         actions.extend(self._detect_life_change(turn, Player.SELF, self_life, "_prev_self_life"))
         actions.extend(self._detect_life_change(turn, Player.OPPONENT, opponent_life, "_prev_opponent_life"))
         actions.extend(self._detect_turn_change(turn, active_player))
@@ -84,22 +100,25 @@ class EventDetector:
         self._prev_opponent_board = cur_opponent_board
         return actions
 
-    def _detect_evolution(
-        self, turn: int, player: Player, observed_ep: Optional[int], prev_attr: str
+    def _detect_point_drop(
+        self, turn: int, player: Player, observed: Optional[int], prev_attr: str, action_type: ActionType
     ) -> list[Action]:
-        """進化ポイントが減った分だけ進化/超進化とみなす(1減=進化、2減=超進化).
+        """ポイント表示の減少を検出してアクションにする.
 
-        観測できていない(None)フレームやEP増加(ターン開始時の付与)は無視する。
+        ゲームUIでは進化ポイント(黄色)と超進化ポイント(紫)が別々のカウンターとして
+        表示されるため、EP減少=進化、SEP減少=超進化としてそれぞれ独立に検出する。
+        フレーム間で2以上減った場合も1回のアクションとして記録する(1秒間隔の監視で
+        2回連続して行うことは稀で、OCRの読み飛ばしの可能性の方が高いため)。
+
+        観測できていない(None)フレームやポイント増加(ターン開始時の付与)は無視する。
         最初の観測時は基準値が無いため比較せず、次回以降の減少検知の基準にするだけ。
         """
         actions: list[Action] = []
-        prev_ep = getattr(self, prev_attr)
-        if observed_ep is not None and prev_ep is not None and observed_ep < prev_ep:
-            delta = prev_ep - observed_ep
-            action_type = ActionType.SUPER_EVOLVE if delta >= 2 else ActionType.EVOLVE
+        prev = getattr(self, prev_attr)
+        if observed is not None and prev is not None and observed < prev:
             actions.append(Action(turn=turn, player=player, action_type=action_type))
-        if observed_ep is not None:
-            setattr(self, prev_attr, observed_ep)
+        if observed is not None:
+            setattr(self, prev_attr, observed)
         return actions
 
     def _detect_life_change(

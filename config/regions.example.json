@@ -37,5 +37,7 @@
   "self_extra_pp": [1700, 995, 60, 30],
   "self_ep": [1620, 950, 60, 30],
   "opponent_ep": [1620, 40, 60, 30],
+  "self_sep": [1560, 950, 60, 30],
+  "opponent_sep": [1560, 40, 60, 30],
   "active_player_pixel": [960, 540]
 }

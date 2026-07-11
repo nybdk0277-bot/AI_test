@@ -136,6 +136,27 @@ def test_no_evolution_suggestion_when_ep_is_zero():
     assert not any("進化ポイント" in r.title for r in recs)
 
 
+def test_super_evolution_suggestion_when_sep_available():
+    tracker = MatchTracker()
+    tracker.state.self_sep = 1
+    tracker.set_self_board([BoardUnit(card_id="1", name="味方", atk=2, hp=2, can_attack=True)])
+
+    recs = recommend_actions(tracker, hand=[])
+
+    rec = next(r for r in recs if "超進化ポイント" in r.title)
+    assert "1残っています" in rec.detail
+
+
+def test_no_super_evolution_suggestion_when_sep_is_zero():
+    tracker = MatchTracker()
+    tracker.state.self_sep = 0
+    tracker.set_self_board([BoardUnit(card_id="1", name="味方", atk=2, hp=2, can_attack=True)])
+
+    recs = recommend_actions(tracker, hand=[])
+
+    assert not any("超進化ポイント" in r.title for r in recs)
+
+
 def _seed_card_results(log: MatchLog, self_clan: str, opponent_clan: str, card_id: str, results: list[str]) -> None:
     for result in results:
         match_id = log.start_match(self_clan=self_clan, opponent_clan=opponent_clan)
