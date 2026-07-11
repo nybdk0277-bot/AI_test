@@ -34,7 +34,9 @@ logger = logging.getLogger(__name__)
 # --- 公式サイト内部API設定（レスポンス形式が変わったら要調整）----------------
 CARD_LIST_API_PATH = "/web/CardList/cardList"
 CARD_LIST_PAGE_PATH = "/ja/deck/cardslist/"
-CARD_IMAGE_URL_TMPL = "{base}/uploads/card_image/ja/card/{image_hash}.png"
+# 画像パスの言語セグメントは "ja" ではなく "jpn"(実機ブラウザのDevToolsで確認済み)。
+# "ja" だとCDNが404ではなく403 Forbiddenを返すため、ホットリンク対策と誤認しやすい。
+CARD_IMAGE_URL_TMPL = "{base}/uploads/card_image/jpn/card/{image_hash}.png"
 REQUEST_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
