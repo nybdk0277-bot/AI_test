@@ -27,14 +27,30 @@ jobs:
           pip install ".[windows,ocr]"
           pip install pyinstaller
 
+      # cv2はコードで未使用のため同梱しない。scipyはimagehashのpHashが使う
+      # scipy.fftpackだけあればよく、--collect-all(テスト等も全同梱)はサイズ肥大の
+      # 元なのでhidden-import指定に留める。
       - name: Build CLI exe with PyInstaller
-        run: pyinstaller --name svtracker --onefile --console --collect-all cv2 --collect-all scipy --collect-all imagehash --collect-all mss --collect-submodules PIL packaging/entrypoint.py
+        run: pyinstaller --name svtracker --onefile --console --hidden-import scipy.fftpack --collect-all imagehash --collect-all mss --collect-submodules PIL packaging/entrypoint.py
 
       - name: Smoke test the CLI exe
-        run: .\dist\svtracker.exe --help
+        run: |
+          .\dist\svtracker.exe --help
+          .\dist\svtracker.exe --version
+
+      # 同梱を絞った結果モジュール欠落(特にscipy.fftpack)が起きていないか、
+      # 実際にpHash計算を通して確認する(import-cardsは画像を開いてpHashを計算する)。
+      - name: Smoke test pHash pipeline via import-cards
+        shell: pwsh
+        run: |
+          python -c "from PIL import Image; Image.new('RGB', (64, 64), (200, 30, 30)).save('smoke_card.png')"
+          Set-Content -Path smoke_cards.csv -Value "card_id,name,clan,cost,card_type,rarity,filename`n1,SmokeCard,ニュートラル,1,フォロワー,ブロンズ,smoke_card.png" -Encoding utf8
+          .\dist\svtracker.exe import-cards . smoke_cards.csv
+          if ($LASTEXITCODE -ne 0) { Write-Error "import-cards smoke test failed"; exit 1 }
+          Write-Host "pHash pipeline OK"
 
       - name: Build GUI exe with PyInstaller
-        run: pyinstaller --name svtracker-gui --onefile --windowed --collect-all cv2 --collect-all scipy --collect-all imagehash --collect-all mss --collect-submodules PIL --collect-submodules tkinter packaging/gui_entrypoint.py
+        run: pyinstaller --name svtracker-gui --onefile --windowed --hidden-import scipy.fftpack --collect-all imagehash --collect-all mss --collect-submodules PIL --collect-submodules tkinter packaging/gui_entrypoint.py
 
       - name: Smoke test the GUI exe (launch, confirm it stays running, then close)
         shell: pwsh
