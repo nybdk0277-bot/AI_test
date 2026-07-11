@@ -127,8 +127,11 @@ def _cmd_stats(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    from svtracker.version import full_version
+
     parser = argparse.ArgumentParser(prog="svtracker", description=__doc__)
     parser.add_argument("-v", "--verbose", action="store_true", help="デバッグログを表示する")
+    parser.add_argument("--version", action="version", version=f"svtracker {full_version()}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_fetch = sub.add_parser("fetch-cards", help="公式サイトからカードマスタを取得する")
