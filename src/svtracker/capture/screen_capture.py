@@ -75,6 +75,8 @@ RECT_SINGLE_REGIONS = [
     "self_extra_pp",
     "self_ep",
     "opponent_ep",
+    "self_sep",
+    "opponent_sep",
 ]
 POINT_REGIONS = ["active_player_pixel"]
 

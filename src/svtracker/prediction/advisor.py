@@ -9,6 +9,7 @@
   5. (対戦記録が十分あれば)過去にプレイして勝率が高かったカードの提示
   6. PP上限を増やすカード・進化ポイントを回復するカードの優先プレイ提案
   7. (対戦記録が十分あれば)過去にそのクラス相手へ進化した対戦の勝率の提示
+  8. 超進化ポイントが残っている場合の超進化検討の提案
 """
 from __future__ import annotations
 
@@ -134,6 +135,18 @@ def recommend_actions(
                     f"{evolve_stats.win_rate:.0%}でした。"
                 )
         recs.append(Recommendation(title="進化ポイントが残っています", detail=detail, priority=2))
+
+    if state.self_sep > 0 and state.self_board:
+        recs.append(
+            Recommendation(
+                title="超進化ポイントが残っています",
+                detail=(
+                    f"超進化ポイントが{state.self_sep}残っています。盤面の主力フォロワーの"
+                    "超進化を検討してください。"
+                ),
+                priority=2,
+            )
+        )
 
     pp_boost_cards = [c for c in playable if c.max_pp_boost > 0]
     if pp_boost_cards:

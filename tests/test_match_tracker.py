@@ -94,17 +94,59 @@ def test_event_detector_detects_evolve_from_ep_decrease():
     assert actions[0].action_type == ActionType.EVOLVE
 
 
-def test_event_detector_detects_super_evolve_from_ep_drop_of_two():
+def test_event_detector_detects_super_evolve_from_sep_decrease():
+    # 進化ポイント(黄色)と超進化ポイント(紫)は別カウンター。SEPの減少=超進化。
     detector = EventDetector()
-    detector.update(turn=8, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[], self_ep=0, opponent_ep=2)
+    detector.update(
+        turn=8, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[], self_sep=1, opponent_sep=1
+    )
 
     actions = detector.update(
-        turn=8, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[], self_ep=0, opponent_ep=0
+        turn=8, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[], self_sep=1, opponent_sep=0
     )
 
     assert len(actions) == 1
     assert actions[0].player == Player.OPPONENT
     assert actions[0].action_type == ActionType.SUPER_EVOLVE
+
+
+def test_event_detector_ep_drop_of_two_is_still_plain_evolve():
+    # EPが2減ってもそれは進化(超進化はSEP側で検出する)。1回分のアクションとして記録。
+    detector = EventDetector()
+    detector.update(turn=8, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[], self_ep=2, opponent_ep=2)
+
+    actions = detector.update(
+        turn=8, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[], self_ep=0, opponent_ep=2
+    )
+
+    assert len(actions) == 1
+    assert actions[0].player == Player.SELF
+    assert actions[0].action_type == ActionType.EVOLVE
+
+
+def test_event_detector_detects_evolve_and_super_evolve_independently():
+    detector = EventDetector()
+    detector.update(
+        turn=6,
+        self_hand_ids=[],
+        self_board_ids=[],
+        opponent_board_ids=[],
+        self_ep=2,
+        self_sep=1,
+    )
+
+    actions = detector.update(
+        turn=6,
+        self_hand_ids=[],
+        self_board_ids=[],
+        opponent_board_ids=[],
+        self_ep=1,
+        self_sep=0,
+    )
+
+    types = {a.action_type for a in actions}
+    assert types == {ActionType.EVOLVE, ActionType.SUPER_EVOLVE}
+    assert all(a.player == Player.SELF for a in actions)
 
 
 def test_event_detector_ignores_ep_increase_and_missing_observations():
@@ -196,6 +238,10 @@ def test_match_tracker_set_extra_pp_and_ep():
     tracker.set_ep(2, 1)
     assert tracker.state.self_ep == 2
     assert tracker.state.opponent_ep == 1
+
+    tracker.set_sep(1, 0)
+    assert tracker.state.self_sep == 1
+    assert tracker.state.opponent_sep == 0
 
 
 def test_infer_clan_ignores_neutral_and_sets_once():

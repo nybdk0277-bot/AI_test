@@ -153,6 +153,25 @@ class MonitorApp:
                 opponent_ep if opponent_ep is not None else self.tracker.state.opponent_ep,
             )
 
+        # 超進化ポイント(SEP)。ゲームUIでは進化ポイント(黄色)とは別の紫のカウンター。
+        self_sep_rect = self.regions.single("self_sep")
+        opponent_sep_rect = self.regions.single("opponent_sep")
+        self_sep = (
+            ocr_reader.read_evolution_points(self.regions.crop(frame, self_sep_rect))
+            if self_sep_rect is not None
+            else None
+        )
+        opponent_sep = (
+            ocr_reader.read_evolution_points(self.regions.crop(frame, opponent_sep_rect))
+            if opponent_sep_rect is not None
+            else None
+        )
+        if self_sep is not None or opponent_sep is not None:
+            self.tracker.set_sep(
+                self_sep if self_sep is not None else self.tracker.state.self_sep,
+                opponent_sep if opponent_sep is not None else self.tracker.state.opponent_sep,
+            )
+
         self_life_rect = self.regions.single("self_life")
         opponent_life_rect = self.regions.single("opponent_life")
         self_life = (
@@ -219,6 +238,8 @@ class MonitorApp:
             opponent_board_ids,
             self_ep=self.tracker.state.self_ep,
             opponent_ep=self.tracker.state.opponent_ep,
+            self_sep=self.tracker.state.self_sep,
+            opponent_sep=self.tracker.state.opponent_sep,
             self_life=self.tracker.state.self_life,
             opponent_life=self.tracker.state.opponent_life,
             active_player=self.tracker.state.active_player,
