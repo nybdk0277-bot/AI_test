@@ -40,7 +40,20 @@ def predict_opponent_next_actions(
 ) -> list[PredictedPlay]:
     state = tracker.state
     turn = max(1, tracker.current_turn)
-    available_pp = opponent_available_pp if opponent_available_pp is not None else min(turn, pp_cap)
+    if opponent_available_pp is not None:
+        available_pp = opponent_available_pp
+    else:
+        # 相手PPは画面から直接読めないためターン数から推定するが、ターンOCRが
+        # 使えない環境(Tesseract未導入等)ではターンが1のまま進まず、予測が
+        # 「1PPで出せるカード」に固定されてしまう。相手が既にプレイしたカードの
+        # 最大コストは「相手が少なくともそれだけのPPを持っている」実測値なので、
+        # 推定の下限として使う。
+        available_pp = min(turn, pp_cap)
+        max_played_cost = max(
+            (card.cost for cid in state.opponent_revealed_card_ids if (card := database.get(cid)) is not None),
+            default=0,
+        )
+        available_pp = min(pp_cap, max(available_pp, max_played_cost))
     opponent_clan = state.opponent_clan
 
     candidates = [
