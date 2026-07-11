@@ -1,3 +1,7 @@
+import sys
+from pathlib import Path
+
+from svtracker import config
 from svtracker.config import Settings
 
 
@@ -35,3 +39,30 @@ def test_save_and_load_round_trip_includes_format_settings(tmp_path):
 
     assert loaded.game_format == "rotation"
     assert loaded.rotation_min_card_set_id == 42
+
+
+def test_default_root_uses_repo_root_when_not_frozen(monkeypatch):
+    monkeypatch.delattr(sys, "frozen", raising=False)
+
+    root = config._default_root()
+
+    # src/svtracker/config.py の2階層上 = リポジトリルート
+    assert root == Path(config.__file__).resolve().parents[2]
+
+
+def test_default_root_uses_appdata_when_frozen(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))
+
+    root = config._default_root()
+
+    assert root == tmp_path / "Roaming" / "svtracker"
+
+
+def test_default_root_falls_back_to_home_when_frozen_without_appdata(monkeypatch):
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.delenv("APPDATA", raising=False)
+
+    root = config._default_root()
+
+    assert root == Path.home() / ".svtracker"

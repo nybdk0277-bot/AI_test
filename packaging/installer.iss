@@ -36,9 +36,9 @@ Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\config\settings.example.json"; DestDir: "{app}\config"; Flags: ignoreversion
 Source: "..\config\regions.example.json"; DestDir: "{app}\config"; Flags: ignoreversion
 
-[Dirs]
-Name: "{app}\data\cards"
-Name: "{app}\data\matches"
+; 注意: データ(カード画像/DB・対戦履歴・設定)はインストール先ではなく
+; %APPDATA%\svtracker に保存される(Program Files配下は一般ユーザーでは
+; 書き込めないため)。ここで {app}\data を作るとユーザーが保存先と誤認するので作らない。
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\svtracker-gui.exe"; WorkingDir: "{app}"
