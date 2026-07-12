@@ -77,6 +77,14 @@ RECT_SINGLE_REGIONS = [
     "opponent_ep",
     "self_sep",
     "opponent_sep",
+    # バトルログ用カウンタ(コンボ数・手札枚数・デッキ残り・墓場枚数)。任意設定。
+    "combo_count",
+    "self_hand_count",
+    "opponent_hand_count",
+    "self_deck_count",
+    "opponent_deck_count",
+    "self_cemetery_count",
+    "opponent_cemetery_count",
 ]
 POINT_REGIONS = ["active_player_pixel"]
 

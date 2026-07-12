@@ -244,6 +244,33 @@ def test_match_tracker_set_extra_pp_and_ep():
     assert tracker.state.opponent_sep == 0
 
 
+def test_match_tracker_set_battle_log_counts_keeps_previous_on_none():
+    tracker = MatchTracker()
+
+    tracker.set_battle_log_counts(
+        combo_count=2,
+        self_hand_count=6,
+        opponent_hand_count=5,
+        self_deck_count=29,
+        opponent_deck_count=30,
+        self_cemetery_count=7,
+        opponent_cemetery_count=3,
+    )
+    assert tracker.state.combo_count == 2
+    assert tracker.state.self_hand_count == 6
+    assert tracker.state.opponent_hand_count == 5
+    assert tracker.state.self_deck_count == 29
+    assert tracker.state.opponent_deck_count == 30
+    assert tracker.state.self_cemetery_count == 7
+    assert tracker.state.opponent_cemetery_count == 3
+
+    # 一部だけ更新し、Noneの値は既存値を保持する(OCR失敗で値が消えない)
+    tracker.set_battle_log_counts(self_cemetery_count=8)
+    assert tracker.state.self_cemetery_count == 8
+    assert tracker.state.combo_count == 2
+    assert tracker.state.self_hand_count == 6
+
+
 def test_infer_clan_ignores_neutral_and_sets_once():
     tracker = MatchTracker()
 

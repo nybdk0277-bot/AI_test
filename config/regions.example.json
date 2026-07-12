@@ -39,5 +39,12 @@
   "opponent_ep": [1620, 40, 60, 30],
   "self_sep": [1560, 950, 60, 30],
   "opponent_sep": [1560, 40, 60, 30],
+  "combo_count": [900, 470, 60, 40],
+  "self_hand_count": [610, 1000, 50, 30],
+  "opponent_hand_count": [610, 20, 50, 30],
+  "self_deck_count": [700, 1000, 50, 30],
+  "opponent_deck_count": [700, 20, 50, 30],
+  "self_cemetery_count": [800, 1000, 50, 30],
+  "opponent_cemetery_count": [800, 20, 50, 30],
   "active_player_pixel": [960, 540]
 }
