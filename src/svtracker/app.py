@@ -188,6 +188,27 @@ class MonitorApp:
                 opponent_life if opponent_life is not None else self.tracker.state.opponent_life,
             )
 
+    def _sync_battle_log_counts(self, frame) -> None:
+        """コンボ数・手札枚数・デッキ残り・墓場枚数のカウンタ表示を読み取る(任意設定領域).
+
+        いずれもキャリブレーションで領域を指定していなければスキップされる。
+        """
+        def read_region(name: str) -> Optional[int]:
+            rect = self.regions.single(name)
+            if rect is None:
+                return None
+            return ocr_reader.read_count(self.regions.crop(frame, rect))
+
+        self.tracker.set_battle_log_counts(
+            combo_count=read_region("combo_count"),
+            self_hand_count=read_region("self_hand_count"),
+            opponent_hand_count=read_region("opponent_hand_count"),
+            self_deck_count=read_region("self_deck_count"),
+            opponent_deck_count=read_region("opponent_deck_count"),
+            self_cemetery_count=read_region("self_cemetery_count"),
+            opponent_cemetery_count=read_region("opponent_cemetery_count"),
+        )
+
     def _infer_clans(self, player: Player, card_ids: list[Optional[str]]) -> None:
         """認識できたカード(ニュートラル以外)からそのプレイヤーのクラスを自動判別する.
 
@@ -219,6 +240,7 @@ class MonitorApp:
 
         self._sync_turn_and_active_player(frame)
         self._sync_pp_and_life(frame)
+        self._sync_battle_log_counts(frame)
 
         self_hand_ids = self._recognize_slots(frame, "self_hand")
         self_board_ids = self._recognize_slots(frame, "self_board")

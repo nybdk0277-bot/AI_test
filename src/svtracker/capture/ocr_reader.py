@@ -93,6 +93,11 @@ def read_evolution_points(image: Image.Image) -> Optional[int]:
     return parse_int_text(_ocr_digits_string(image))
 
 
+def read_count(image: Image.Image) -> Optional[int]:
+    """手札枚数・デッキ残り・墓場枚数・コンボ数などの整数カウンタ表示を読み取る."""
+    return parse_int_text(_ocr_digits_string(image))
+
+
 def sample_pixel_color(image: Image.Image, xy: tuple[int, int]) -> tuple[int, int, int]:
     pixel = image.convert("RGB").getpixel(xy)
     return pixel[0], pixel[1], pixel[2]

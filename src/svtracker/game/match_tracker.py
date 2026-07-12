@@ -23,6 +23,14 @@ class MatchState:
     opponent_ep: int = 0  # 相手の進化ポイント(残り回数)
     self_sep: int = 0  # 自分の超進化ポイント(残り回数、ゲームUIでは紫表示)
     opponent_sep: int = 0  # 相手の超進化ポイント(残り回数)
+    # バトルログ用のカウンタ表示(画面OCRで読み取れれば埋まる。未読取時は None)。
+    combo_count: Optional[int] = None  # 自分の現在ターンのコンボ数
+    self_hand_count: Optional[int] = None
+    opponent_hand_count: Optional[int] = None
+    self_deck_count: Optional[int] = None
+    opponent_deck_count: Optional[int] = None
+    self_cemetery_count: Optional[int] = None  # 墓場(破壊されたカード)枚数
+    opponent_cemetery_count: Optional[int] = None
     self_hand_card_ids: set[str] = field(default_factory=set)
     self_board: list[BoardUnit] = field(default_factory=list)
     opponent_board: list[BoardUnit] = field(default_factory=list)
@@ -96,6 +104,36 @@ class MatchTracker:
     def set_sep(self, self_sep: int, opponent_sep: int) -> None:
         self.state.self_sep = self_sep
         self.state.opponent_sep = opponent_sep
+
+    def set_battle_log_counts(
+        self,
+        combo_count: Optional[int] = None,
+        self_hand_count: Optional[int] = None,
+        opponent_hand_count: Optional[int] = None,
+        self_deck_count: Optional[int] = None,
+        opponent_deck_count: Optional[int] = None,
+        self_cemetery_count: Optional[int] = None,
+        opponent_cemetery_count: Optional[int] = None,
+    ) -> None:
+        """バトルログ用のカウンタ表示(コンボ数・手札・デッキ残り・墓場)を反映する.
+
+        読み取れなかった(None)値は既存値を保持する(1フレームのOCR失敗で
+        値が消えないようにするため)。
+        """
+        if combo_count is not None:
+            self.state.combo_count = combo_count
+        if self_hand_count is not None:
+            self.state.self_hand_count = self_hand_count
+        if opponent_hand_count is not None:
+            self.state.opponent_hand_count = opponent_hand_count
+        if self_deck_count is not None:
+            self.state.self_deck_count = self_deck_count
+        if opponent_deck_count is not None:
+            self.state.opponent_deck_count = opponent_deck_count
+        if self_cemetery_count is not None:
+            self.state.self_cemetery_count = self_cemetery_count
+        if opponent_cemetery_count is not None:
+            self.state.opponent_cemetery_count = opponent_cemetery_count
 
     def infer_clan(self, player: Player, clan: str) -> bool:
         """認識できたカードの実際のクラスから、そのプレイヤーのクラスを推測する.

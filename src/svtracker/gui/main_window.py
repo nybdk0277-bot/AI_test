@@ -40,6 +40,13 @@ REGION_LABELS = {
     "opponent_ep": "相手の進化ポイント表示(黄色)",
     "self_sep": "自分の超進化ポイント表示(紫)",
     "opponent_sep": "相手の超進化ポイント表示(紫)",
+    "combo_count": "コンボ数(任意)",
+    "self_hand_count": "自分の手札枚数(任意)",
+    "opponent_hand_count": "相手の手札枚数(任意)",
+    "self_deck_count": "自分のデッキ残り枚数(任意)",
+    "opponent_deck_count": "相手のデッキ残り枚数(任意)",
+    "self_cemetery_count": "自分の墓場枚数(任意)",
+    "opponent_cemetery_count": "相手の墓場枚数(任意)",
     "active_player_pixel": "手番判定ピクセル",
 }
 REGION_COLORS = {
@@ -55,6 +62,13 @@ REGION_COLORS = {
     "opponent_ep": "#ffaa33",
     "self_sep": "#aa66ff",
     "opponent_sep": "#dd66ff",
+    "combo_count": "#66ddaa",
+    "self_hand_count": "#88ccff",
+    "opponent_hand_count": "#ff8888",
+    "self_deck_count": "#88ccff",
+    "opponent_deck_count": "#ff8888",
+    "self_cemetery_count": "#cccccc",
+    "opponent_cemetery_count": "#cccccc",
 }
 REGION_ORDER = RECT_LIST_REGIONS + RECT_SINGLE_REGIONS + POINT_REGIONS
 DEFAULT_SLOT_COUNT = {"self_hand": 9, "self_board": 7, "opponent_board": 7}
@@ -608,6 +622,8 @@ class MonitorTab(ttk.Frame):
         ttk.Label(self, textvariable=self.status_var, foreground="#666").pack(anchor="w", pady=(6, 0))
         self.clan_status_var = tk.StringVar(value="")
         ttk.Label(self, textvariable=self.clan_status_var, foreground="#666").pack(anchor="w")
+        self.count_status_var = tk.StringVar(value="")
+        ttk.Label(self, textvariable=self.count_status_var, foreground="#666").pack(anchor="w")
         self.after(500, self._poll_clan_status)
 
         self.log_text = tk.Text(self, height=30, state="disabled", bg="#111111", fg="#dddddd", wrap="word")
@@ -620,9 +636,25 @@ class MonitorTab(ttk.Frame):
             self_clan = state.self_clan or "判別中..."
             opponent_clan = state.opponent_clan or "判別中..."
             self.clan_status_var.set(f"検出中のクラス: 自分={self_clan} / 相手={opponent_clan}")
+            self.count_status_var.set(self._format_counts(state))
         else:
             self.clan_status_var.set("")
+            self.count_status_var.set("")
         self.after(500, self._poll_clan_status)
+
+    @staticmethod
+    def _format_counts(state) -> str:
+        """バトルログ用カウンタ(領域を設定したものだけ)を1行にまとめる."""
+        parts = []
+        if state.combo_count is not None:
+            parts.append(f"コンボ{state.combo_count}")
+        if state.self_hand_count is not None or state.opponent_hand_count is not None:
+            parts.append(f"手札 自{state.self_hand_count}/相{state.opponent_hand_count}")
+        if state.self_deck_count is not None or state.opponent_deck_count is not None:
+            parts.append(f"デッキ 自{state.self_deck_count}/相{state.opponent_deck_count}")
+        if state.self_cemetery_count is not None or state.opponent_cemetery_count is not None:
+            parts.append(f"墓場 自{state.self_cemetery_count}/相{state.opponent_cemetery_count}")
+        return "  ".join(parts)
 
     def _on_format_selected(self, _event) -> None:
         self.app.settings.game_format = GAME_FORMAT_VALUES.get(self.format_var.get(), "unlimited")
