@@ -98,6 +98,39 @@ def read_count(image: Image.Image) -> Optional[int]:
     return parse_int_text(_ocr_digits_string(image))
 
 
+# 実対戦動画のフレームから採取した点灯ピップの色。EP=金(≈206,180,76)、SEP=紫(≈178,151,214)。
+# 消灯ピップは暗色(≈83-95,70-88,72-95)。ピップはオーブ(それ自体が金/紫)の上に重なって
+# 表示されるため「領域全体から塊を数える」方式は使えず、ピップ1個ずつを小さな枠として
+# キャリブレーションし、枠内の点灯色ピクセル比率で点灯/消灯を判定する。
+# 実フレームでの比率: 点灯=0.59〜0.83 / 消灯=0.07〜0.39(閾値0.5で明確に分離)。
+PIP_LIT_FRACTION_THRESHOLD = 0.5
+
+
+def _is_lit_ep_pixel(r: int, g: int, b: int) -> bool:
+    return r >= 150 and g >= 110 and b <= 140 and (r + g) - 2 * b >= 60
+
+
+def _is_lit_sep_pixel(r: int, g: int, b: int) -> bool:
+    return b >= 150 and r >= 110 and b - g >= 30
+
+
+def pip_is_lit(pip_image: Image.Image, kind: str) -> bool:
+    """進化ポイント(kind="ep")/超進化ポイント(kind="sep")のピップ1個の点灯判定."""
+    is_lit = _is_lit_ep_pixel if kind == "ep" else _is_lit_sep_pixel
+    rgb = pip_image.convert("RGB")
+    width, height = rgb.size
+    if width == 0 or height == 0:
+        return False
+    pixels = rgb.load()
+    lit = sum(1 for x in range(width) for y in range(height) if is_lit(*pixels[x, y]))
+    return lit / (width * height) >= PIP_LIT_FRACTION_THRESHOLD
+
+
+def count_lit_pips(pip_images: list[Image.Image], kind: str) -> int:
+    """ピップ枠(1個ずつキャリブレーションした小さな矩形)の点灯数を数える."""
+    return sum(1 for img in pip_images if pip_is_lit(img, kind))
+
+
 def sample_pixel_color(image: Image.Image, xy: tuple[int, int]) -> tuple[int, int, int]:
     pixel = image.convert("RGB").getpixel(xy)
     return pixel[0], pixel[1], pixel[2]

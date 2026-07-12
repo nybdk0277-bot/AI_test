@@ -73,6 +73,11 @@ RECT_LIST_REGIONS = [
     # クレスト枠(リーダー横の丸スロット、自分=画面左下・相手=画面右上に各4つ)。任意設定。
     "self_crest_slots",
     "opponent_crest_slots",
+    # EP/SEPのピップ(◆)を1個ずつ囲む枠。点灯色の比率で残数を判定する。任意設定。
+    "self_ep_pips",
+    "opponent_ep_pips",
+    "self_sep_pips",
+    "opponent_sep_pips",
 ]
 RECT_SINGLE_REGIONS = [
     "turn_indicator",

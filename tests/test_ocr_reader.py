@@ -1,7 +1,15 @@
 import sys
 import types
 
-from svtracker.capture.ocr_reader import classify_active_player, parse_int_text, parse_pp_text
+from PIL import Image
+
+from svtracker.capture.ocr_reader import (
+    classify_active_player,
+    count_lit_pips,
+    parse_int_text,
+    parse_pp_text,
+    pip_is_lit,
+)
 from svtracker.game.models import Player
 
 
@@ -68,3 +76,30 @@ def test_ocr_digits_string_warns_once_when_tesseract_binary_missing(monkeypatch,
     warnings = [r for r in caplog.records if r.levelname == "WARNING"]
     assert len(warnings) == 1
     assert "Tesseract本体が見つかりません" in warnings[0].message
+
+
+def _pip(color: tuple[int, int, int]) -> Image.Image:
+    return Image.new("RGB", (20, 22), color)
+
+
+def test_pip_is_lit_ep_gold_and_dark():
+    # 実フレーム採取色: 点灯EP=(206,180,76) / 消灯=(95,88,72)
+    assert pip_is_lit(_pip((206, 180, 76)), "ep")
+    assert not pip_is_lit(_pip((95, 88, 72)), "ep")
+
+
+def test_pip_is_lit_sep_purple_and_dark():
+    # 実フレーム採取色: 点灯SEP=(178,151,214) / 消灯=(83,70,95)
+    assert pip_is_lit(_pip((178, 151, 214)), "sep")
+    assert not pip_is_lit(_pip((83, 70, 95)), "sep")
+
+
+def test_pip_ep_color_does_not_count_as_sep():
+    assert not pip_is_lit(_pip((206, 180, 76)), "sep")
+    assert not pip_is_lit(_pip((178, 151, 214)), "ep")
+
+
+def test_count_lit_pips_counts_only_lit():
+    pips = [_pip((206, 180, 76)), _pip((95, 88, 72)), _pip((210, 185, 80))]
+    assert count_lit_pips(pips, "ep") == 2
+    assert count_lit_pips([], "ep") == 0

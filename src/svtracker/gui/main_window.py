@@ -49,6 +49,10 @@ REGION_LABELS = {
     "opponent_cemetery_count": "相手の墓場枚数(任意)",
     "self_crest_slots": "自分のクレスト枠(コンボ数の上、任意)",
     "opponent_crest_slots": "相手のクレスト枠(画面右上、任意)",
+    "self_ep_pips": "自分の進化ピップ◆(金、1個ずつ)",
+    "opponent_ep_pips": "相手の進化ピップ◆(金、1個ずつ)",
+    "self_sep_pips": "自分の超進化ピップ◆(紫、1個ずつ)",
+    "opponent_sep_pips": "相手の超進化ピップ◆(紫、1個ずつ)",
     "opponent_pp": "相手のPP表示(画面右上のPP n/m)",
     "active_player_pixel": "手番判定ピクセル(ターン終了ボタン上推奨)",
 }
@@ -75,6 +79,10 @@ REGION_COLORS = {
     "self_crest_slots": "#ffbb33",
     "opponent_crest_slots": "#ff6633",
     "opponent_pp": "#33ffcc",
+    "self_ep_pips": "#ffdd55",
+    "opponent_ep_pips": "#ffaa33",
+    "self_sep_pips": "#aa66ff",
+    "opponent_sep_pips": "#dd66ff",
 }
 REGION_ORDER = RECT_LIST_REGIONS + RECT_SINGLE_REGIONS + POINT_REGIONS
 DEFAULT_SLOT_COUNT = {
@@ -83,6 +91,10 @@ DEFAULT_SLOT_COUNT = {
     "opponent_board": 7,
     "self_crest_slots": 4,
     "opponent_crest_slots": 4,
+    "self_ep_pips": 2,
+    "opponent_ep_pips": 2,
+    "self_sep_pips": 2,
+    "opponent_sep_pips": 2,
 }
 GAME_FORMAT_LABELS = {"unlimited": "アンリミテッド", "rotation": "ローテーション"}
 GAME_FORMAT_VALUES = {label: value for value, label in GAME_FORMAT_LABELS.items()}
