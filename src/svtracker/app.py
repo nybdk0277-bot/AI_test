@@ -10,6 +10,7 @@ from svtracker.cards.card_matcher import CardMatcher
 from svtracker.cards.models import Card
 from svtracker.capture import ocr_reader
 from svtracker.capture.screen_capture import RegionSet, ScreenCapture
+from svtracker.capture.stability import StableValue
 from svtracker.config import Settings
 from svtracker.game.event_detector import EventDetector
 from svtracker.game.match_tracker import MatchTracker
@@ -19,6 +20,13 @@ from svtracker.prediction.predictor import predict_opponent_next_actions
 from svtracker.storage.match_log import MatchLog
 
 logger = logging.getLogger(__name__)
+
+# OCR誤読の棄却に使う妥当範囲(実戦ログで life=204 等の誤読が観測されたため)。
+MAX_PLAUSIBLE_LIFE = 40
+MAX_PLAUSIBLE_PP = 10
+MAX_PLAUSIBLE_TURN = 40
+# カードが一度も認識できていない場合に診断ログを出すフレーム間隔。
+RECOGNITION_DIAG_INTERVAL = 30
 
 
 class MonitorApp:
@@ -58,6 +66,22 @@ class MonitorApp:
         if self.match_log is not None:
             self.match_id = self.match_log.start_match(self_clan, opponent_clan)
 
+        # 1フレーム限りの誤読で状態が動かないよう、変化は2フレーム連続で確定させる。
+        self._stable: dict[str, StableValue] = {
+            name: StableValue(required=2)
+            for name in (
+                "turn", "self_life", "opponent_life", "self_ep", "opponent_ep",
+                "self_sep", "opponent_sep", "opponent_pp",
+            )
+        }
+        # クレスト枠は演出の重なりが数秒続くことがあるため、より長い確定時間にする
+        self._stable["self_crest"] = StableValue(required=3)
+        self._stable["opponent_crest"] = StableValue(required=3)
+        # カード認識の診断用(一度も認識できていない場合に案内を出す)
+        self._step_count = 0
+        self._recognized_any_card = False
+        self._min_match_distance: Optional[int] = None
+
     def close(self) -> None:
         self.capture.close()
         if self.match_log is not None:
@@ -76,8 +100,18 @@ class MonitorApp:
             return []
         results = []
         for crop in self.regions.crop_named_slots(frame, region_name):
-            match = self.matcher.best_match(crop)
-            results.append(match.card.card_id if match else None)
+            candidates = self.matcher.match(crop, top_k=1)
+            if not candidates:
+                results.append(None)
+                continue
+            best = candidates[0]
+            if self._min_match_distance is None or best.distance < self._min_match_distance:
+                self._min_match_distance = best.distance
+            if best.distance <= self.matcher.max_distance:
+                self._recognized_any_card = True
+                results.append(best.card.card_id)
+            else:
+                results.append(None)
         return results
 
     def _build_board_units(self, card_ids: list[Optional[str]]) -> list[BoardUnit]:
@@ -115,26 +149,40 @@ class MonitorApp:
 
         if turn_rect is not None:
             observed_turn = ocr_reader.read_turn_number(self.regions.crop(frame, turn_rect))
-            if observed_turn is not None:
-                self.tracker.sync_turn(observed_turn, active_player)
-                return
+            if observed_turn is not None and 1 <= observed_turn <= MAX_PLAUSIBLE_TURN:
+                confirmed = self._stable["turn"].update(observed_turn)
+                # ターンは対戦中に戻らないため、進む方向の変化のみ反映する(誤読対策)。
+                if confirmed is not None and confirmed > self.tracker.state.turn:
+                    self.tracker.sync_turn(confirmed, active_player)
+                    return
 
         if active_player is not None:
             self.tracker.state.active_player = active_player
 
+    @staticmethod
+    def _plausible_pp(pp: Optional[tuple[int, int]]) -> Optional[tuple[int, int]]:
+        """PP読み取り値の妥当性チェック。「現在<=最大<=10」を満たさない誤読を棄却する."""
+        if pp is None:
+            return None
+        current, maximum = pp
+        if 1 <= maximum <= MAX_PLAUSIBLE_PP and 0 <= current <= maximum:
+            return pp
+        return None
+
     def _sync_pp_and_life(self, frame) -> None:
         pp_rect = self.regions.single("self_pp")
         if pp_rect is not None:
-            pp = ocr_reader.read_pp(self.regions.crop(frame, pp_rect))
+            pp = self._plausible_pp(ocr_reader.read_pp(self.regions.crop(frame, pp_rect)))
             if pp is not None:
                 self.tracker.set_pp(*pp)
 
         # 相手PPは画面右上に「PP 6 /9」形式で常時表示されている(実対戦動画で確認)。
         opponent_pp_rect = self.regions.single("opponent_pp")
         if opponent_pp_rect is not None:
-            opponent_pp = ocr_reader.read_pp(self.regions.crop(frame, opponent_pp_rect))
-            if opponent_pp is not None:
-                self.tracker.set_opponent_pp(*opponent_pp)
+            observed = self._plausible_pp(ocr_reader.read_pp(self.regions.crop(frame, opponent_pp_rect)))
+            confirmed = self._stable["opponent_pp"].update(observed)
+            if confirmed is not None:
+                self.tracker.set_opponent_pp(*confirmed)
 
         extra_pp_rect = self.regions.single("self_extra_pp")
         if extra_pp_rect is not None:
@@ -142,8 +190,12 @@ class MonitorApp:
             if extra_pp is not None:
                 self.tracker.set_extra_pp(extra_pp)
 
-        self_ep = self._read_points(frame, pips_name="self_ep_pips", digit_name="self_ep", kind="ep")
-        opponent_ep = self._read_points(frame, pips_name="opponent_ep_pips", digit_name="opponent_ep", kind="ep")
+        self_ep = self._stable["self_ep"].update(
+            self._read_points(frame, pips_name="self_ep_pips", digit_name="self_ep", kind="ep")
+        )
+        opponent_ep = self._stable["opponent_ep"].update(
+            self._read_points(frame, pips_name="opponent_ep_pips", digit_name="opponent_ep", kind="ep")
+        )
         if self_ep is not None or opponent_ep is not None:
             self.tracker.set_ep(
                 self_ep if self_ep is not None else self.tracker.state.self_ep,
@@ -151,9 +203,11 @@ class MonitorApp:
             )
 
         # 超進化ポイント(SEP)。ゲームUIでは進化ポイント(金)とは別の紫のピップ。
-        self_sep = self._read_points(frame, pips_name="self_sep_pips", digit_name="self_sep", kind="sep")
-        opponent_sep = self._read_points(
-            frame, pips_name="opponent_sep_pips", digit_name="opponent_sep", kind="sep"
+        self_sep = self._stable["self_sep"].update(
+            self._read_points(frame, pips_name="self_sep_pips", digit_name="self_sep", kind="sep")
+        )
+        opponent_sep = self._stable["opponent_sep"].update(
+            self._read_points(frame, pips_name="opponent_sep_pips", digit_name="opponent_sep", kind="sep")
         )
         if self_sep is not None or opponent_sep is not None:
             self.tracker.set_sep(
@@ -161,16 +215,18 @@ class MonitorApp:
                 opponent_sep if opponent_sep is not None else self.tracker.state.opponent_sep,
             )
 
-        self_life_rect = self.regions.single("self_life")
-        opponent_life_rect = self.regions.single("opponent_life")
-        self_life = (
-            ocr_reader.read_life(self.regions.crop(frame, self_life_rect)) if self_life_rect is not None else None
-        )
-        opponent_life = (
-            ocr_reader.read_life(self.regions.crop(frame, opponent_life_rect))
-            if opponent_life_rect is not None
-            else None
-        )
+        def read_plausible_life(name: str) -> Optional[int]:
+            rect = self.regions.single(name)
+            if rect is None:
+                return None
+            value = ocr_reader.read_life(self.regions.crop(frame, rect))
+            # 実戦で life=204 等の誤読が観測されたため、妥当範囲外は棄却する
+            if value is None or not 0 <= value <= MAX_PLAUSIBLE_LIFE:
+                return None
+            return value
+
+        self_life = self._stable["self_life"].update(read_plausible_life("self_life"))
+        opponent_life = self._stable["opponent_life"].update(read_plausible_life("opponent_life"))
         if self_life is not None or opponent_life is not None:
             self.tracker.set_life(
                 self_life if self_life is not None else self.tracker.state.self_life,
@@ -199,8 +255,8 @@ class MonitorApp:
             return crest_reader.count_occupied_slots(slots)
 
         self.tracker.set_crest_counts(
-            self_crest_count=count_region("self_crest_slots"),
-            opponent_crest_count=count_region("opponent_crest_slots"),
+            self_crest_count=self._stable["self_crest"].update(count_region("self_crest_slots")),
+            opponent_crest_count=self._stable["opponent_crest"].update(count_region("opponent_crest_slots")),
         )
 
     def _sync_battle_log_counts(self, frame) -> None:
@@ -252,6 +308,7 @@ class MonitorApp:
             return
 
         frame = self.capture.grab()
+        self._step_count += 1
 
         self._sync_turn_and_active_player(frame)
         self._sync_pp_and_life(frame)
@@ -268,6 +325,17 @@ class MonitorApp:
         self_hand_ids = self._recognize_slots(frame, "self_hand")
         self_board_ids = self._recognize_slots(frame, "self_board")
         opponent_board_ids = self._recognize_slots(frame, "opponent_board")
+
+        if not self._recognized_any_card and self._step_count % RECOGNITION_DIAG_INTERVAL == 0:
+            logger.warning(
+                "手札/盤面のカードがまだ一度も認識できていません(これまでの最小pHash距離=%s、"
+                "認識閾値 match_max_distance=%s)。距離が閾値よりやや大きいだけなら "
+                "settings.json の match_max_distance を上げると認識される可能性があります。"
+                "距離が大幅に大きい場合は、キャリブレーションの手札/盤面枠がカードの絵柄部分と"
+                "ずれていないか、カードDBの画像が古くないかを確認してください。",
+                self._min_match_distance,
+                self.matcher.max_distance,
+            )
 
         self._infer_clans(Player.SELF, [*self_hand_ids, *self_board_ids])
         self._infer_clans(Player.OPPONENT, opponent_board_ids)

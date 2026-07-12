@@ -9,11 +9,12 @@ from __future__ import annotations
 
 from PIL import Image, ImageStat
 
-# 実動画のフレーム(空スロット=暗い背景円 / 占有スロット=明るいアイコン)から
-# 経験的に決めた閾値。UIテーマや画質で変わる可能性があるため、誤判定が多い場合は
-# ここを調整すること。
-MIN_OCCUPIED_BRIGHTNESS = 60.0  # グレースケール平均(0-255)
-MIN_OCCUPIED_STDDEV = 28.0  # グレースケール標準偏差(のっぺりした空円は低い)
+# 実動画のフレームから採った実測値: 占有スロット=明るさ117/ばらつき62、
+# 空スロット=明るさ45〜67/ばらつき15〜18。空スロットは半透明で背後の盤面が
+# 透けるため、派手な演出中は数値が上がる。実戦で誤検出が出たため、閾値は
+# 実測の中間よりも占有側に寄せてある。それでも誤判定が出る場合はここを調整すること。
+MIN_OCCUPIED_BRIGHTNESS = 85.0  # グレースケール平均(0-255)
+MIN_OCCUPIED_STDDEV = 42.0  # グレースケール標準偏差(のっぺりした空円は低い)
 
 
 def slot_is_occupied(slot_image: Image.Image) -> bool:
