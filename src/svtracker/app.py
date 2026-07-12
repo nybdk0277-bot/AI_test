@@ -142,36 +142,18 @@ class MonitorApp:
             if extra_pp is not None:
                 self.tracker.set_extra_pp(extra_pp)
 
-        self_ep_rect = self.regions.single("self_ep")
-        opponent_ep_rect = self.regions.single("opponent_ep")
-        self_ep = (
-            ocr_reader.read_evolution_points(self.regions.crop(frame, self_ep_rect))
-            if self_ep_rect is not None
-            else None
-        )
-        opponent_ep = (
-            ocr_reader.read_evolution_points(self.regions.crop(frame, opponent_ep_rect))
-            if opponent_ep_rect is not None
-            else None
-        )
+        self_ep = self._read_points(frame, pips_name="self_ep_pips", digit_name="self_ep", kind="ep")
+        opponent_ep = self._read_points(frame, pips_name="opponent_ep_pips", digit_name="opponent_ep", kind="ep")
         if self_ep is not None or opponent_ep is not None:
             self.tracker.set_ep(
                 self_ep if self_ep is not None else self.tracker.state.self_ep,
                 opponent_ep if opponent_ep is not None else self.tracker.state.opponent_ep,
             )
 
-        # 超進化ポイント(SEP)。ゲームUIでは進化ポイント(黄色)とは別の紫のカウンター。
-        self_sep_rect = self.regions.single("self_sep")
-        opponent_sep_rect = self.regions.single("opponent_sep")
-        self_sep = (
-            ocr_reader.read_evolution_points(self.regions.crop(frame, self_sep_rect))
-            if self_sep_rect is not None
-            else None
-        )
-        opponent_sep = (
-            ocr_reader.read_evolution_points(self.regions.crop(frame, opponent_sep_rect))
-            if opponent_sep_rect is not None
-            else None
+        # 超進化ポイント(SEP)。ゲームUIでは進化ポイント(金)とは別の紫のピップ。
+        self_sep = self._read_points(frame, pips_name="self_sep_pips", digit_name="self_sep", kind="sep")
+        opponent_sep = self._read_points(
+            frame, pips_name="opponent_sep_pips", digit_name="opponent_sep", kind="sep"
         )
         if self_sep is not None or opponent_sep is not None:
             self.tracker.set_sep(
@@ -194,6 +176,17 @@ class MonitorApp:
                 self_life if self_life is not None else self.tracker.state.self_life,
                 opponent_life if opponent_life is not None else self.tracker.state.opponent_life,
             )
+
+    def _read_points(self, frame, pips_name: str, digit_name: str, kind: str) -> Optional[int]:
+        """EP/SEPの残数を読む。ピップ枠(実UI向け)があれば点灯数を数え、
+        無ければ数字OCR領域(数字表示のUI向け)にフォールバックする."""
+        pip_crops = self.regions.crop_named_slots(frame, pips_name)
+        if pip_crops:
+            return ocr_reader.count_lit_pips(pip_crops, kind)
+        rect = self.regions.single(digit_name)
+        if rect is not None:
+            return ocr_reader.read_evolution_points(self.regions.crop(frame, rect))
+        return None
 
     def _sync_crest_slots(self, frame) -> None:
         """クレスト枠(丸スロット)の占有数を明るさ/ばらつき判定で数える(任意設定領域)."""
