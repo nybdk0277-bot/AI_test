@@ -244,6 +244,52 @@ def test_match_tracker_set_extra_pp_and_ep():
     assert tracker.state.opponent_sep == 0
 
 
+def test_event_detector_detects_crest_change_for_both_players():
+    detector = EventDetector()
+    detector.update(
+        turn=3, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[],
+        self_crest_count=0, opponent_crest_count=0,
+    )
+
+    actions = detector.update(
+        turn=4, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[],
+        self_crest_count=1, opponent_crest_count=0,
+    )
+
+    crest_actions = [a for a in actions if a.action_type == ActionType.CREST_CHANGE]
+    assert len(crest_actions) == 1
+    assert crest_actions[0].player == Player.SELF
+    assert "+1" in crest_actions[0].detail
+    assert "計1" in crest_actions[0].detail
+
+
+def test_event_detector_ignores_crest_count_on_first_observation():
+    detector = EventDetector()
+
+    actions = detector.update(
+        turn=1, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[],
+        self_crest_count=2, opponent_crest_count=1,
+    )
+
+    assert not any(a.action_type == ActionType.CREST_CHANGE for a in actions)
+
+
+def test_match_tracker_set_opponent_pp_and_crest_counts():
+    tracker = MatchTracker()
+
+    tracker.set_opponent_pp(6, 9)
+    assert tracker.state.opponent_pp == 6
+    assert tracker.state.opponent_max_pp == 9
+
+    tracker.set_crest_counts(self_crest_count=1)
+    assert tracker.state.self_crest_count == 1
+    assert tracker.state.opponent_crest_count is None  # Noneは既存値を保持
+
+    tracker.set_crest_counts(opponent_crest_count=2)
+    assert tracker.state.self_crest_count == 1
+    assert tracker.state.opponent_crest_count == 2
+
+
 def test_match_tracker_set_battle_log_counts_keeps_previous_on_none():
     tracker = MatchTracker()
 

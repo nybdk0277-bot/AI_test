@@ -26,6 +26,7 @@ class ActionType(str, Enum):
     ABILITY = "ability"
     UNIT_DESTROYED = "unit_destroyed"  # 盤面上のフォロワーが消滅した(破壊/除去/バウンスなど区別しない)
     LIFE_CHANGE = "life_change"  # ライフが変化した(被ダメージ/回復。detailに増減幅を記録)
+    CREST_CHANGE = "crest_change"  # クレスト枠の占有数が変化した(付与/消滅。detailに増減を記録)
     UNKNOWN = "unknown"
 
 
