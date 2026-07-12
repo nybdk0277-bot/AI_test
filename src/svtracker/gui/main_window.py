@@ -47,7 +47,10 @@ REGION_LABELS = {
     "opponent_deck_count": "相手のデッキ残り枚数(任意)",
     "self_cemetery_count": "自分の墓場枚数(任意)",
     "opponent_cemetery_count": "相手の墓場枚数(任意)",
-    "active_player_pixel": "手番判定ピクセル",
+    "self_crest_slots": "自分のクレスト枠(コンボ数の上、任意)",
+    "opponent_crest_slots": "相手のクレスト枠(画面右上、任意)",
+    "opponent_pp": "相手のPP表示(画面右上のPP n/m)",
+    "active_player_pixel": "手番判定ピクセル(ターン終了ボタン上推奨)",
 }
 REGION_COLORS = {
     "self_hand": "#33ccff",
@@ -69,9 +72,18 @@ REGION_COLORS = {
     "opponent_deck_count": "#ff8888",
     "self_cemetery_count": "#cccccc",
     "opponent_cemetery_count": "#cccccc",
+    "self_crest_slots": "#ffbb33",
+    "opponent_crest_slots": "#ff6633",
+    "opponent_pp": "#33ffcc",
 }
 REGION_ORDER = RECT_LIST_REGIONS + RECT_SINGLE_REGIONS + POINT_REGIONS
-DEFAULT_SLOT_COUNT = {"self_hand": 9, "self_board": 7, "opponent_board": 7}
+DEFAULT_SLOT_COUNT = {
+    "self_hand": 9,
+    "self_board": 7,
+    "opponent_board": 7,
+    "self_crest_slots": 4,
+    "opponent_crest_slots": 4,
+}
 GAME_FORMAT_LABELS = {"unlimited": "アンリミテッド", "rotation": "ローテーション"}
 GAME_FORMAT_VALUES = {label: value for value, label in GAME_FORMAT_LABELS.items()}
 
@@ -654,6 +666,10 @@ class MonitorTab(ttk.Frame):
             parts.append(f"デッキ 自{state.self_deck_count}/相{state.opponent_deck_count}")
         if state.self_cemetery_count is not None or state.opponent_cemetery_count is not None:
             parts.append(f"墓場 自{state.self_cemetery_count}/相{state.opponent_cemetery_count}")
+        if state.self_crest_count is not None or state.opponent_crest_count is not None:
+            parts.append(f"クレスト 自{state.self_crest_count}/相{state.opponent_crest_count}")
+        if state.opponent_max_pp > 0:
+            parts.append(f"相手PP {state.opponent_pp}/{state.opponent_max_pp}")
         return "  ".join(parts)
 
     def _on_format_selected(self, _event) -> None:

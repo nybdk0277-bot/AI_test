@@ -23,6 +23,8 @@ class EventDetector:
         self._prev_opponent_sep: Optional[int] = None
         self._prev_self_life: Optional[int] = None
         self._prev_opponent_life: Optional[int] = None
+        self._prev_self_crest_count: Optional[int] = None
+        self._prev_opponent_crest_count: Optional[int] = None
         self._prev_turn: Optional[int] = None
         self._prev_active_player: Optional[Player] = None
 
@@ -38,6 +40,8 @@ class EventDetector:
         opponent_sep: Optional[int] = None,
         self_life: Optional[int] = None,
         opponent_life: Optional[int] = None,
+        self_crest_count: Optional[int] = None,
+        opponent_crest_count: Optional[int] = None,
         active_player: Optional[Player] = None,
     ) -> list[Action]:
         actions: list[Action] = []
@@ -93,6 +97,12 @@ class EventDetector:
         )
         actions.extend(self._detect_life_change(turn, Player.SELF, self_life, "_prev_self_life"))
         actions.extend(self._detect_life_change(turn, Player.OPPONENT, opponent_life, "_prev_opponent_life"))
+        actions.extend(
+            self._detect_crest_change(turn, Player.SELF, self_crest_count, "_prev_self_crest_count")
+        )
+        actions.extend(
+            self._detect_crest_change(turn, Player.OPPONENT, opponent_crest_count, "_prev_opponent_crest_count")
+        )
         actions.extend(self._detect_turn_change(turn, active_player))
 
         self._prev_self_hand = cur_self_hand
@@ -139,6 +149,26 @@ class EventDetector:
             )
         if observed_life is not None:
             setattr(self, prev_attr, observed_life)
+        return actions
+
+    def _detect_crest_change(
+        self, turn: int, player: Player, observed_count: Optional[int], prev_attr: str
+    ) -> list[Action]:
+        """クレスト枠の占有数の増減を検出する。最初の観測時は基準値が無いため比較しない."""
+        actions: list[Action] = []
+        prev = getattr(self, prev_attr)
+        if observed_count is not None and prev is not None and observed_count != prev:
+            delta = observed_count - prev
+            actions.append(
+                Action(
+                    turn=turn,
+                    player=player,
+                    action_type=ActionType.CREST_CHANGE,
+                    detail=f"{delta:+d} (計{observed_count})",
+                )
+            )
+        if observed_count is not None:
+            setattr(self, prev_attr, observed_count)
         return actions
 
     def _detect_turn_change(self, turn: int, active_player: Optional[Player]) -> list[Action]:

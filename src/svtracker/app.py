@@ -129,6 +129,13 @@ class MonitorApp:
             if pp is not None:
                 self.tracker.set_pp(*pp)
 
+        # 相手PPは画面右上に「PP 6 /9」形式で常時表示されている(実対戦動画で確認)。
+        opponent_pp_rect = self.regions.single("opponent_pp")
+        if opponent_pp_rect is not None:
+            opponent_pp = ocr_reader.read_pp(self.regions.crop(frame, opponent_pp_rect))
+            if opponent_pp is not None:
+                self.tracker.set_opponent_pp(*opponent_pp)
+
         extra_pp_rect = self.regions.single("self_extra_pp")
         if extra_pp_rect is not None:
             extra_pp = ocr_reader.read_extra_pp(self.regions.crop(frame, extra_pp_rect))
@@ -188,6 +195,21 @@ class MonitorApp:
                 opponent_life if opponent_life is not None else self.tracker.state.opponent_life,
             )
 
+    def _sync_crest_slots(self, frame) -> None:
+        """クレスト枠(丸スロット)の占有数を明るさ/ばらつき判定で数える(任意設定領域)."""
+        from svtracker.capture import crest_reader
+
+        def count_region(name: str) -> Optional[int]:
+            slots = self.regions.crop_named_slots(frame, name)
+            if not slots:
+                return None
+            return crest_reader.count_occupied_slots(slots)
+
+        self.tracker.set_crest_counts(
+            self_crest_count=count_region("self_crest_slots"),
+            opponent_crest_count=count_region("opponent_crest_slots"),
+        )
+
     def _sync_battle_log_counts(self, frame) -> None:
         """コンボ数・手札枚数・デッキ残り・墓場枚数のカウンタ表示を読み取る(任意設定領域).
 
@@ -241,6 +263,14 @@ class MonitorApp:
         self._sync_turn_and_active_player(frame)
         self._sync_pp_and_life(frame)
         self._sync_battle_log_counts(frame)
+        self._sync_crest_slots(frame)
+
+        # 実UIにはターン数の常時表示が無い(実対戦動画で確認)ため、PP最大値(自分/相手の
+        # 大きい方)をターン数の下限として使う。turn_indicator が読めている場合はそちらが優先
+        # (sync_turnは値が進む方向にしか更新しないためOCR値と競合しない)。
+        max_pp_estimate = max(self.tracker.state.self_max_pp, self.tracker.state.opponent_max_pp)
+        if max_pp_estimate > self.tracker.state.turn:
+            self.tracker.sync_turn(max_pp_estimate)
 
         self_hand_ids = self._recognize_slots(frame, "self_hand")
         self_board_ids = self._recognize_slots(frame, "self_board")
@@ -264,6 +294,8 @@ class MonitorApp:
             opponent_sep=self.tracker.state.opponent_sep,
             self_life=self.tracker.state.self_life,
             opponent_life=self.tracker.state.opponent_life,
+            self_crest_count=self.tracker.state.self_crest_count,
+            opponent_crest_count=self.tracker.state.opponent_crest_count,
             active_player=self.tracker.state.active_player,
         )
 
@@ -292,12 +324,20 @@ class MonitorApp:
                 logger.info("[turn %s] %s のライフが変化: %s", action.turn, action.player.value, action.detail)
             elif action.action_type == ActionType.END_TURN:
                 logger.info("[turn %s] %s のターンが終了しました", action.turn, action.player.value)
+            elif action.action_type == ActionType.CREST_CHANGE:
+                logger.info("[turn %s] %s のクレストが変化: %s", action.turn, action.player.value, action.detail)
 
         if any(a.player == Player.OPPONENT for a in new_actions):
+            # 相手PPを直接読めていればそれを使う(相手ターン中の残りPP=次に出せるカードの上限)。
+            # 読めていなければNoneを渡し、predictor側のターン数/実測プレイからの推定に任せる。
+            observed_opponent_pp = (
+                self.tracker.state.opponent_max_pp if self.tracker.state.opponent_max_pp > 0 else None
+            )
             predictions = predict_opponent_next_actions(
                 self.tracker,
                 self.database,
                 self.match_log,
+                opponent_available_pp=observed_opponent_pp,
                 rotation_min_card_set_id=self.settings.rotation_min_card_set_id,
             )
             for p in predictions[:3]:

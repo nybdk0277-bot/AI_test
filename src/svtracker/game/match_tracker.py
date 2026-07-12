@@ -18,6 +18,9 @@ class MatchState:
     opponent_life: int = 20
     self_pp: int = 0
     self_max_pp: int = 0
+    # 相手のPPは画面右上に「PP 6 /9」の形式で常時表示されているため直接読み取れる。
+    opponent_pp: int = 0
+    opponent_max_pp: int = 0
     self_extra_pp: int = 0  # 使わなかったPPを持ち越すエクストラPP(最大2)
     self_ep: int = 0  # 自分の進化ポイント(残り回数、ゲームUIでは黄色表示)
     opponent_ep: int = 0  # 相手の進化ポイント(残り回数)
@@ -31,6 +34,9 @@ class MatchState:
     opponent_deck_count: Optional[int] = None
     self_cemetery_count: Optional[int] = None  # 墓場(破壊されたカード)枚数
     opponent_cemetery_count: Optional[int] = None
+    # クレスト枠(リーダー横の丸スロット)のうち埋まっている数。未読取時は None。
+    self_crest_count: Optional[int] = None
+    opponent_crest_count: Optional[int] = None
     self_hand_card_ids: set[str] = field(default_factory=set)
     self_board: list[BoardUnit] = field(default_factory=list)
     opponent_board: list[BoardUnit] = field(default_factory=list)
@@ -93,6 +99,18 @@ class MatchTracker:
     def set_pp(self, current: int, maximum: int) -> None:
         self.state.self_pp = current
         self.state.self_max_pp = maximum
+
+    def set_opponent_pp(self, current: int, maximum: int) -> None:
+        self.state.opponent_pp = current
+        self.state.opponent_max_pp = maximum
+
+    def set_crest_counts(
+        self, self_crest_count: Optional[int] = None, opponent_crest_count: Optional[int] = None
+    ) -> None:
+        if self_crest_count is not None:
+            self.state.self_crest_count = self_crest_count
+        if opponent_crest_count is not None:
+            self.state.opponent_crest_count = opponent_crest_count
 
     def set_extra_pp(self, extra_pp: int) -> None:
         self.state.self_extra_pp = extra_pp

@@ -66,10 +66,18 @@ class ScreenCapture:
 
 # 複数枠を持つ領域(手札・盤面)、単一矩形の領域、単一座標(ピクセル判定用)の領域。
 # GUIのキャリブレーション画面もこの一覧を使って編集対象を出し分ける。
-RECT_LIST_REGIONS = ["self_hand", "self_board", "opponent_board"]
+RECT_LIST_REGIONS = [
+    "self_hand",
+    "self_board",
+    "opponent_board",
+    # クレスト枠(リーダー横の丸スロット、自分=画面左下・相手=画面右上に各4つ)。任意設定。
+    "self_crest_slots",
+    "opponent_crest_slots",
+]
 RECT_SINGLE_REGIONS = [
     "turn_indicator",
     "self_pp",
+    "opponent_pp",
     "self_life",
     "opponent_life",
     "self_extra_pp",
