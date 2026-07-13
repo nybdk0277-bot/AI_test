@@ -114,6 +114,50 @@ class MonitorApp:
                 results.append(None)
         return results
 
+    def dump_recognition_debug(self, out_dir) -> "Path":
+        """現在の画面を1枚キャプチャし、各カード枠の切り出し画像と最有力候補を保存する.
+
+        「枠がカードに合っているか」「合っているのに一致しないのか」を目視で切り分ける
+        ための診断用。out_dir 直下に crop画像(手札/盤面の各スロット)と summary.txt
+        (スロットごとの最有力候補カード名とpHash距離)を書き出し、そのディレクトリを返す。
+        """
+        from pathlib import Path
+
+        out = Path(out_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        # 古い診断結果が混ざらないよう、既存のcrop_*.pngは消してから書き出す
+        for old in out.glob("crop_*.png"):
+            old.unlink()
+
+        frame = self.capture.grab()
+        frame.save(out / "full_frame.png")
+        lines = [
+            f"カードDB枚数: {len(self.database)}",
+            f"match_max_distance(認識閾値): {self.matcher.max_distance}",
+            "pHash距離は0が完全一致、大きいほど別物(16x16なら最大256、128前後で無関係)。",
+            "距離が大きい場合はまず crop_*.png を開き、カードの絵柄が正しく写っているか確認してください。",
+            "",
+        ]
+        if self.regions is None:
+            lines.append("regions.json が未設定です。")
+        else:
+            for region_name in ("self_hand", "self_board", "opponent_board"):
+                crops = self.regions.crop_named_slots(frame, region_name)
+                lines.append(f"[{region_name}] {len(crops)}枠")
+                for i, crop in enumerate(crops):
+                    fname = f"crop_{region_name}_{i + 1}.png"
+                    crop.save(out / fname)
+                    results = self.matcher.match(crop, top_k=1)
+                    if results:
+                        best = results[0]
+                        lines.append(f"  {fname}: 最有力={best.card.name} 距離={best.distance}")
+                    else:
+                        lines.append(f"  {fname}: 候補なし(カードDBにpHash画像が無い)")
+                lines.append("")
+        (out / "summary.txt").write_text("\n".join(lines), encoding="utf-8")
+        logger.info("認識デバッグを保存しました: %s", out)
+        return out
+
     def _build_board_units(self, card_ids: list[Optional[str]]) -> list[BoardUnit]:
         """認識できたカードIDから盤面ユニットを組み立てる.
 
