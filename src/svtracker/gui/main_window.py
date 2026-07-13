@@ -627,6 +627,8 @@ class MonitorTab(ttk.Frame):
         self.start_button.grid(row=0, column=4, padx=(12, 4))
         self.stop_button = ttk.Button(form, text="停止", command=self._stop, state="disabled")
         self.stop_button.grid(row=0, column=5)
+        self.debug_button = ttk.Button(form, text="認識デバッグ", command=self._dump_debug)
+        self.debug_button.grid(row=0, column=6, padx=(12, 0))
 
         ttk.Label(form, text="対戦形式:").grid(row=1, column=0, sticky="w", pady=(6, 0))
         self.format_var = tk.StringVar()
@@ -652,6 +654,62 @@ class MonitorTab(ttk.Frame):
 
         self.log_text = tk.Text(self, height=30, state="disabled", bg="#111111", fg="#dddddd", wrap="word")
         self.log_text.pack(fill="both", expand=True, pady=(8, 0))
+
+    def _dump_debug(self) -> None:
+        """現在のゲーム画面を1枚キャプチャし、カード枠の切り出しと最有力候補を保存して開く.
+
+        「距離96=枠がカードに合っていない or 見た目が別物」を目視で切り分けるための診断。
+        ゲームを最前面にした状態で押すこと。監視の開始は不要。
+        """
+        if not self.app.settings.regions_path.exists():
+            messagebox.showwarning("未設定", "先にキャリブレーションタブで regions.json を保存してください。")
+            return
+        self.debug_button.config(state="disabled")
+        self.status_var.set("認識デバッグ中...(ゲーム画面をキャプチャします)")
+
+        out_dir = self.app.settings.data_dir / "debug"
+
+        def work():
+            from svtracker.app import MonitorApp
+
+            monitor_app = self.app.monitor_app
+            if monitor_app is not None:
+                return monitor_app.dump_recognition_debug(out_dir)
+            # 監視していないときは使い捨てのMonitorApp(対戦記録は作らない)で1枚診断する
+            tmp = MonitorApp(self.app.settings, enable_match_log=False)
+            try:
+                return tmp.dump_recognition_debug(out_dir)
+            finally:
+                tmp.close()
+
+        def done(path):
+            self.status_var.set("停止中" if self.app.monitor_app is None else "監視中")
+            self.debug_button.config(state="normal")
+            self._open_folder(path)
+            messagebox.showinfo(
+                "認識デバッグを保存しました",
+                f"{path}\n\ncrop_*.png を開いて、カードの絵柄が正しく写っているか確認してください。"
+                "summary.txt に各枠の最有力候補カード名とpHash距離が入っています。",
+            )
+
+        def error(exc):
+            self.status_var.set("停止中" if self.app.monitor_app is None else "監視中")
+            self.debug_button.config(state="normal")
+            messagebox.showerror("認識デバッグに失敗しました", str(exc))
+
+        self.app.run_in_background(work, on_done=done, on_error=error)
+
+    @staticmethod
+    def _open_folder(path) -> None:
+        try:
+            if sys.platform == "win32":
+                os.startfile(str(path))  # noqa: S606
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(path)])
+            else:
+                subprocess.Popen(["xdg-open", str(path)])
+        except Exception:  # noqa: BLE001
+            logger.exception("フォルダを開けませんでした")
 
     def _poll_clan_status(self) -> None:
         monitor_app = self.app.monitor_app
