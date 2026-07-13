@@ -356,6 +356,16 @@ class CalibrationTab(ttk.Frame):
 
         ttk.Button(right, text="スクリーンショットを撮る", command=self._capture).pack(fill="x", pady=4)
 
+        ttk.Button(right, text="プリセットを自動適用", command=self._apply_preset).pack(fill="x", pady=4)
+        ttk.Label(
+            right,
+            text="全領域を1920x1080基準のプリセットから画面サイズに合わせて一括生成します"
+            "(手作業ドラッグの代わり)。固定UI(PP/ライフ/カウンタ等)はほぼ合いますが、"
+            "カード枠は初期値なので必要に応じて微調整してください。",
+            wraplength=230,
+            foreground="#888",
+        ).pack(anchor="w", pady=(0, 4))
+
         ttk.Label(right, text="編集する領域", font=("", 10, "bold")).pack(anchor="w", pady=(12, 0))
         self.region_var = tk.StringVar(value=REGION_LABELS.get(self.current_region, self.current_region))
         region_box = ttk.Combobox(
@@ -481,6 +491,44 @@ class CalibrationTab(ttk.Frame):
             self._refresh_overlays()
 
         self.app.run_in_background(work, on_done=done)
+
+    def _apply_preset(self) -> None:
+        """1920x1080基準のプリセットを、キャプチャ画面サイズに合わせて全領域へ一括適用する."""
+        from svtracker.capture.presets import preset_region_set
+
+        # キャプチャ済み画像があればそのサイズ、無ければ選択中モニタのサイズを使う
+        if self._captured_image is not None:
+            w, h = self._captured_image.size
+        else:
+            w, h = self._current_capture_size()
+        if not w or not h:
+            messagebox.showwarning(
+                "サイズ不明",
+                "先に「スクリーンショットを撮る」を押すか、モニタを選択してください。",
+            )
+            return
+        if not messagebox.askyesno(
+            "プリセットを適用",
+            f"現在の全領域設定を、{w}x{h} 用のプリセットで上書きします。よろしいですか?",
+        ):
+            return
+        self.app.regions = preset_region_set(w, h)
+        self._update_slot_count()
+        self._refresh_overlays()
+        messagebox.showinfo(
+            "適用しました",
+            "プリセットを適用しました。プレビューで位置を確認し、ずれている枠を微調整してから"
+            "「regions.json / settings.json に保存」で保存してください。",
+        )
+
+    def _current_capture_size(self) -> tuple[int, int]:
+        try:
+            if self._monitor_options:
+                monitor = self._monitor_options[self.monitor_combo.current()]
+                return monitor.width, monitor.height
+        except Exception:  # noqa: BLE001
+            pass
+        return (0, 0)
 
     def _on_region_changed(self, index: int) -> None:
         self.current_region = REGION_ORDER[index]
