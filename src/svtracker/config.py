@@ -47,8 +47,9 @@ class Settings:
     match_db_path: Path = REPO_ROOT / "data" / "matches" / "matches.db"
     regions_path: Path = REPO_ROOT / "config" / "regions.json"
 
-    # キャプチャ設定
-    capture_interval_sec: float = 1.0
+    # キャプチャ設定。プレイ表示(プレイ時に中央へ出る大型カード)は1秒前後で消えるため、
+    # 取りこぼさないよう既定は0.5秒にしている。
+    capture_interval_sec: float = 0.5
     window_title_hint: str = "Shadowverse"
     monitor_index: int = 1  # mss は 0 が全モニタ結合、1以降が個別モニタ
 

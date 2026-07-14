@@ -14,7 +14,7 @@ from svtracker.capture.stability import StableValue
 from svtracker.config import Settings
 from svtracker.game.event_detector import EventDetector
 from svtracker.game.match_tracker import MatchTracker
-from svtracker.game.models import ActionType, BoardUnit, GameFormat, Player
+from svtracker.game.models import Action, ActionType, BoardUnit, GameFormat, Player
 from svtracker.prediction.advisor import recommend_actions
 from svtracker.prediction.predictor import predict_opponent_next_actions
 from svtracker.storage.match_log import MatchLog
@@ -81,6 +81,9 @@ class MonitorApp:
         self._step_count = 0
         self._recognized_any_card = False
         self._min_match_distance: Optional[int] = None
+        # プレイ表示(プレイ時に画面中央へ出る完全なカード)の直前の認識結果。
+        # 同じカードが表示され続けている間に重複記録しないためのもの。
+        self._last_reveal: dict[str, Optional[str]] = {}
 
     def close(self) -> None:
         self.capture.close()
@@ -154,9 +157,66 @@ class MonitorApp:
                     else:
                         lines.append(f"  {fname}: 候補なし(カードDBにpHash画像が無い)")
                 lines.append("")
+            for region_name in ("opponent_play_reveal", "self_play_reveal"):
+                rect = self.regions.single(region_name)
+                if rect is None:
+                    lines.append(f"[{region_name}] 未設定")
+                    continue
+                crop = self.regions.crop(frame, rect)
+                fname = f"crop_{region_name}.png"
+                crop.save(out / fname)
+                results = self.matcher.match(crop, top_k=1)
+                if results:
+                    best = results[0]
+                    lines.append(f"[{region_name}] {fname}: 最有力={best.card.name} 距離={best.distance}")
+                else:
+                    lines.append(f"[{region_name}] {fname}: 候補なし")
+                lines.append("")
         (out / "summary.txt").write_text("\n".join(lines), encoding="utf-8")
         logger.info("認識デバッグを保存しました: %s", out)
         return out
+
+    def _detect_play_reveals(self, frame, turn: int) -> list[Action]:
+        """プレイ時に画面中央へ大きく表示される「完全なカード」を照合してプレイを検出する.
+
+        手札は扇状に傾き、盤面は枚数で位置が変わり中央寄せされるため固定枠での照合が
+        効きにくいのに対し、プレイ表示は「平面・正立・大型・固定位置」で公式カード画像と
+        同じ構図なので、pHash照合が最も効く場所(実対戦動画で確認)。
+        相手= opponent_play_reveal(画面中央)、自分= self_play_reveal(手札を持ち上げた
+        ときの右側プレビュー)。同じカードが表示され続けている間は1回だけ記録する。
+        """
+        actions: list[Action] = []
+        for region_name, player in (
+            ("opponent_play_reveal", Player.OPPONENT),
+            ("self_play_reveal", Player.SELF),
+        ):
+            rect = self.regions.single(region_name)
+            if rect is None:
+                continue
+            crop = self.regions.crop(frame, rect)
+            candidates = self.matcher.match(crop, top_k=1)
+            if not candidates:
+                continue
+            best = candidates[0]
+            if self._min_match_distance is None or best.distance < self._min_match_distance:
+                self._min_match_distance = best.distance
+            if best.distance <= self.matcher.max_distance:
+                self._recognized_any_card = True
+                if self._last_reveal.get(region_name) != best.card.card_id:
+                    self._last_reveal[region_name] = best.card.card_id
+                    actions.append(
+                        Action(
+                            turn=turn,
+                            player=player,
+                            action_type=ActionType.PLAY_CARD,
+                            card_id=best.card.card_id,
+                            detail="プレイ表示から認識",
+                        )
+                    )
+            else:
+                # 表示が消えたらリセット(同じカードを続けてプレイした場合も拾えるように)
+                self._last_reveal[region_name] = None
+        return actions
 
     def _build_board_units(self, card_ids: list[Optional[str]]) -> list[BoardUnit]:
         """認識できたカードIDから盤面ユニットを組み立てる.
@@ -388,7 +448,12 @@ class MonitorApp:
         self.tracker.set_opponent_board(self._build_board_units(opponent_board_ids))
 
         turn = self.tracker.current_turn or 1
-        new_actions = self.event_detector.update(
+        reveal_actions = self._detect_play_reveals(frame, turn)
+        # プレイ表示から相手クラスも自動判別できる(盤面認識より確実)
+        self._infer_clans(Player.OPPONENT, [a.card_id for a in reveal_actions if a.player == Player.OPPONENT])
+        self._infer_clans(Player.SELF, [a.card_id for a in reveal_actions if a.player == Player.SELF])
+
+        new_actions = reveal_actions + self.event_detector.update(
             turn,
             self_hand_ids,
             self_board_ids,
@@ -403,6 +468,23 @@ class MonitorApp:
             opponent_crest_count=self.tracker.state.opponent_crest_count,
             active_player=self.tracker.state.active_player,
         )
+
+        # プレイ表示と手札/盤面差分の両方が同じプレイを検出した場合の二重記録を防ぐ
+        # (同ターン・同プレイヤー・同カードのPLAY_CARDは最初の1件だけ通す)
+        seen_plays = {
+            (a.player, a.card_id, a.turn)
+            for a in self.tracker.actions
+            if a.action_type == ActionType.PLAY_CARD
+        }
+        deduped: list[Action] = []
+        for action in new_actions:
+            if action.action_type == ActionType.PLAY_CARD and action.card_id:
+                key = (action.player, action.card_id, action.turn)
+                if key in seen_plays:
+                    continue
+                seen_plays.add(key)
+            deduped.append(action)
+        new_actions = deduped
 
         for action in new_actions:
             card = self.database.get(action.card_id) if action.card_id else None
