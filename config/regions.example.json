@@ -75,5 +75,7 @@
     [1340, 120, 80, 80],
     [1448, 120, 80, 80]
   ],
-  "active_player_pixel": [960, 540]
+  "opponent_play_reveal": [340, 210, 560, 730],
+  "self_play_reveal": [1190, 355, 265, 390],
+  "active_player_pixel": [1740, 470]
 }
