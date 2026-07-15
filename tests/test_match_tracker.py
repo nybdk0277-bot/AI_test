@@ -344,3 +344,28 @@ def test_infer_clan_tracks_self_and_opponent_independently():
     assert tracker.infer_clan(Player.OPPONENT, "ビショップ") is True
     assert tracker.state.opponent_clan == "ビショップ"
     assert tracker.state.self_clan == ""
+
+
+def test_add_inferred_unit_caps_at_five_and_drops_oldest():
+    from svtracker.game.models import BoardUnit
+
+    tracker = MatchTracker()
+    for i in range(6):
+        tracker.add_inferred_unit(
+            Player.SELF, BoardUnit(card_id=f"c{i}", name=f"ユニット{i}", atk=1, hp=1)
+        )
+
+    assert len(tracker.state.self_board) == 5
+    assert tracker.state.self_board[0].card_id == "c1"  # 最古(c0)が落ちる
+    assert tracker.state.opponent_board == []
+
+
+def test_add_inferred_unit_tracks_players_separately():
+    from svtracker.game.models import BoardUnit
+
+    tracker = MatchTracker()
+    tracker.add_inferred_unit(Player.SELF, BoardUnit(card_id="s", name="味方", atk=1, hp=1))
+    tracker.add_inferred_unit(Player.OPPONENT, BoardUnit(card_id="o", name="敵", atk=2, hp=2))
+
+    assert [u.card_id for u in tracker.state.self_board] == ["s"]
+    assert [u.card_id for u in tracker.state.opponent_board] == ["o"]

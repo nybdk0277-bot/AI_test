@@ -444,8 +444,15 @@ class MonitorApp:
         self._infer_clans(Player.SELF, [*self_hand_ids, *self_board_ids])
         self._infer_clans(Player.OPPONENT, opponent_board_ids)
 
-        self.tracker.set_self_board(self._build_board_units(self_board_ids))
-        self.tracker.set_opponent_board(self._build_board_units(opponent_board_ids))
+        # 盤面枠の画像照合が効いた場合のみ盤面を上書きする。効かない場合(実UIでは
+        # オーラ演出でpHash照合がほぼ不可能なことを実測済み)は、プレイ検出からの
+        # 推定盤面(add_inferred_unit)を保持する。
+        visual_self_board = self._build_board_units(self_board_ids)
+        if visual_self_board:
+            self.tracker.set_self_board(visual_self_board)
+        visual_opponent_board = self._build_board_units(opponent_board_ids)
+        if visual_opponent_board:
+            self.tracker.set_opponent_board(visual_opponent_board)
 
         turn = self.tracker.current_turn or 1
         reveal_actions = self._detect_play_reveals(frame, turn)
@@ -497,6 +504,18 @@ class MonitorApp:
                 logger.info(
                     "[turn %s] %s が %s をプレイ", action.turn, action.player.value, action.card_name or action.card_id
                 )
+                # プレイされたフォロワーは盤面に出たとみなして推定盤面に追加する
+                # (盤面の画像照合は演出の重なりで機能しないため、履歴からの推定で代替)
+                if (
+                    card is not None
+                    and card.card_type == "フォロワー"
+                    and card.base_atk is not None
+                    and card.base_hp is not None
+                ):
+                    self.tracker.add_inferred_unit(
+                        action.player,
+                        BoardUnit(card_id=card.card_id, name=card.name, atk=card.base_atk, hp=card.base_hp),
+                    )
             elif action.action_type in (ActionType.EVOLVE, ActionType.SUPER_EVOLVE):
                 label = "超進化" if action.action_type == ActionType.SUPER_EVOLVE else "進化"
                 logger.info("[turn %s] %s が%sしました", action.turn, action.player.value, label)

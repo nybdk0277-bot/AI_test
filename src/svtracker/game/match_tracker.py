@@ -6,6 +6,9 @@ from typing import Optional
 
 from svtracker.game.models import Action, ActionType, BoardUnit, GameFormat, Player
 
+# SVWBの盤面は片側最大5体(実対戦動画で確認)
+MAX_BOARD_UNITS = 5
+
 
 @dataclass
 class MatchState:
@@ -95,6 +98,19 @@ class MatchTracker:
 
     def set_opponent_board(self, units: list[BoardUnit]) -> None:
         self.state.opponent_board = units
+
+    def add_inferred_unit(self, player: Player, unit: BoardUnit) -> None:
+        """プレイ検出から「盤面に出たはず」のフォロワーを推定盤面に追加する.
+
+        盤面のユニットはオーラ等の演出が常時イラストに重なり画像照合が効かない
+        (同一アート同士でもpHash距離が閾値の数倍になることを実測で確認)ため、
+        盤面はプレイ履歴からの推定で追跡する。上限枚数を超えたら古いものから落とす。
+        破壊・除去は検出できないため、実際より多く残る方向にずれる点に注意。
+        """
+        board = self.state.self_board if player == Player.SELF else self.state.opponent_board
+        board.append(unit)
+        while len(board) > MAX_BOARD_UNITS:
+            board.pop(0)
 
     def set_pp(self, current: int, maximum: int) -> None:
         self.state.self_pp = current

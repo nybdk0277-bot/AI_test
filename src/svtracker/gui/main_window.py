@@ -91,8 +91,8 @@ REGION_COLORS = {
 REGION_ORDER = RECT_LIST_REGIONS + RECT_SINGLE_REGIONS + POINT_REGIONS
 DEFAULT_SLOT_COUNT = {
     "self_hand": 9,
-    "self_board": 7,
-    "opponent_board": 7,
+    "self_board": 5,
+    "opponent_board": 5,
     "self_crest_slots": 4,
     "opponent_crest_slots": 4,
     "self_ep_pips": 2,
