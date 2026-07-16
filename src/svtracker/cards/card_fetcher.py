@@ -18,9 +18,10 @@ from __future__ import annotations
 
 import csv
 import logging
+import re
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Iterator, Optional
 
 import requests
 from PIL import Image
@@ -30,6 +31,50 @@ from svtracker.cards.hashing import compute_phash_hex
 from svtracker.cards.models import Card
 
 logger = logging.getLogger(__name__)
+
+# カードが「別のカードを盤面/手札に出す」ことを表す動詞。この語を含む節に登場する
+# 『カード名』を「生成されるカード(トークン)」とみなす。SVWBのテキストはカード名を
+# 必ず『』で囲むため、この方式でトークン名を機械的に抽出できる。
+_GENERATION_KEYWORDS = ("場に出す", "を出す", "生成", "召喚")
+_CARD_NAME_IN_BRACKETS = re.compile(r"『([^』]+)』")
+
+
+def _extract_generated_names(text: Optional[str]) -> set[str]:
+    """能力テキストから「生成される(場に出される)カード名」を抽出する.
+
+    生成を表す語を含む節(。や改行で区切った単位)に出てくる『カード名』を集める。
+    「手札に加える」等のサーチは通常のデッキ内カードを指すことが多いので対象外にしている。
+    """
+    names: set[str] = set()
+    if not text:
+        return names
+    for clause in re.split(r"[。\n、]", text):
+        if any(keyword in clause for keyword in _GENERATION_KEYWORDS):
+            names.update(_CARD_NAME_IN_BRACKETS.findall(clause))
+    return names
+
+
+def _iter_strings(obj) -> Iterator[str]:
+    """辞書/リストを再帰的にたどって全ての文字列値を列挙する(能力テキストの在り処が
+    どのフィールドでも拾えるよう、構造を仮定せず全文字列を対象にする)。"""
+    if isinstance(obj, str):
+        yield obj
+    elif isinstance(obj, dict):
+        for value in obj.values():
+            yield from _iter_strings(value)
+    elif isinstance(obj, (list, tuple)):
+        for value in obj:
+            yield from _iter_strings(value)
+
+
+def flag_tokens_by_generation_text(db: CardDatabase, generated_names: set[str]) -> int:
+    """生成カード名の集合に名前が一致するカードを is_token=True にする。付与件数を返す."""
+    count = 0
+    for card in db.all():
+        if card.name in generated_names and not card.is_token:
+            card.is_token = True
+            count += 1
+    return count
 
 # --- 公式サイト内部API設定（レスポンス形式が変わったら要調整）----------------
 CARD_LIST_API_PATH = "/web/CardList/cardList"
@@ -92,6 +137,7 @@ def fetch_from_official_site(
 
     image_attempts = 0
     image_failures = 0
+    generated_names: set[str] = set()
     offset = 0
     total: Optional[int] = None
     for _ in range(MAX_PAGES_SAFETY_LIMIT):
@@ -119,6 +165,9 @@ def fetch_from_official_site(
             detail = card_details.get(str(card_id))
             if detail is None:
                 continue
+            # このカードの全テキスト(能力説明など)から「生成されるカード名」を集める
+            for text in _iter_strings(detail):
+                generated_names |= _extract_generated_names(text)
             common = detail.get("common", {})
             card = _parse_card_common(common)
             if card is None:
@@ -156,6 +205,11 @@ def fetch_from_official_site(
             image_failures,
             image_attempts,
         )
+
+    # 能力テキストから抽出した「生成されるカード名」に一致するカードをトークンとして自動フラグ。
+    token_count = flag_tokens_by_generation_text(db, generated_names)
+    if token_count:
+        logger.info("能力テキスト解析でトークンカードを%d枚自動判定しました。", token_count)
 
     return db
 
