@@ -1,6 +1,7 @@
 """対戦履歴の永続化(SQLite)と、予測エンジン向けの集計クエリ."""
 from __future__ import annotations
 
+import json
 import sqlite3
 import time
 from contextlib import closing
@@ -51,7 +52,8 @@ CREATE TABLE IF NOT EXISTS actions (
     card_id TEXT,
     card_name TEXT,
     detail TEXT,
-    timestamp REAL NOT NULL
+    timestamp REAL NOT NULL,
+    context TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_actions_match ON actions(match_id);
@@ -65,7 +67,15 @@ class MatchLog:
         self.db_path = db_path
         self._conn = sqlite3.connect(str(db_path))
         self._conn.executescript(SCHEMA)
+        self._migrate()
         self._conn.commit()
+
+    def _migrate(self) -> None:
+        """古いDB(contextカラムが無い)を新スキーマへ追従させる."""
+        with closing(self._conn.cursor()) as cur:
+            cols = {row[1] for row in cur.execute("PRAGMA table_info(actions)").fetchall()}
+            if "context" not in cols:
+                cur.execute("ALTER TABLE actions ADD COLUMN context TEXT")
 
     def close(self) -> None:
         self._conn.close()
@@ -86,11 +96,12 @@ class MatchLog:
             return cur.lastrowid
 
     def log_action(self, match_id: int, action: Action) -> None:
+        context_json = json.dumps(action.context, ensure_ascii=False) if action.context else None
         with closing(self._conn.cursor()) as cur:
             cur.execute(
                 """INSERT INTO actions
-                   (match_id, turn, player, action_type, card_id, card_name, detail, timestamp)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (match_id, turn, player, action_type, card_id, card_name, detail, timestamp, context)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     match_id,
                     action.turn,
@@ -100,6 +111,7 @@ class MatchLog:
                     action.card_name,
                     action.detail,
                     action.timestamp,
+                    context_json,
                 ),
             )
             self._conn.commit()
@@ -241,3 +253,56 @@ class MatchLog:
                 (opponent_clan, Player.OPPONENT.value, ActionType.PLAY_CARD.value, limit),
             )
             return list(cur.fetchall())
+
+    def card_play_situations(
+        self, card_id: str, player: Player, opponent_clan: Optional[str] = None
+    ) -> list[dict]:
+        """指定カードがプレイされたときの局面スナップショット(context)を全て返す.
+
+        「このカードはどんな状況で出されているか」(何ターン目・何PP・盤面何体・
+        ライフ状況など)を後から考察するための生データ。context未記録の行は除く。
+        """
+        query = (
+            "SELECT actions.context FROM actions JOIN matches ON actions.match_id = matches.id "
+            "WHERE actions.player = ? AND actions.action_type = ? AND actions.card_id = ? "
+            "AND actions.context IS NOT NULL"
+        )
+        params: list = [player.value, ActionType.PLAY_CARD.value, card_id]
+        if opponent_clan:
+            query += " AND matches.opponent_clan = ?"
+            params.append(opponent_clan)
+        with closing(self._conn.cursor()) as cur:
+            rows = cur.execute(query, params).fetchall()
+        situations = []
+        for (context_json,) in rows:
+            try:
+                situations.append(json.loads(context_json))
+            except (json.JSONDecodeError, TypeError):
+                continue
+        return situations
+
+    def card_play_context_summary(
+        self, card_id: str, player: Player, opponent_clan: Optional[str] = None
+    ) -> Optional[dict]:
+        """card_play_situations を集計し、代表的な傾向(平均ターン/平均PP/平均盤面数など)を返す.
+
+        記録が1件も無ければ None。
+        """
+        situations = self.card_play_situations(card_id, player, opponent_clan)
+        if not situations:
+            return None
+
+        def avg(key: str) -> Optional[float]:
+            values = [s[key] for s in situations if isinstance(s.get(key), (int, float))]
+            return sum(values) / len(values) if values else None
+
+        pp_key = "self_pp" if player == Player.SELF else "opponent_pp"
+        board_key = "self_board_count" if player == Player.SELF else "opponent_board_count"
+        return {
+            "samples": len(situations),
+            "avg_turn": avg("turn"),
+            "avg_pp": avg(pp_key),
+            "avg_self_board_count": avg("self_board_count"),
+            "avg_opponent_board_count": avg("opponent_board_count"),
+            "avg_own_board_count": avg(board_key),
+        }

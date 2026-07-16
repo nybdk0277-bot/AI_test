@@ -168,3 +168,71 @@ def test_evolve_win_rate_ignores_opponent_evolve_actions(tmp_path):
     assert stats.total == 0
 
     log.close()
+
+
+def test_log_action_stores_and_summarizes_context(tmp_path):
+    log = MatchLog(tmp_path / "matches.db")
+
+    m1 = log.start_match(self_clan="エルフ", opponent_clan="ロイヤル")
+    log.log_action(
+        m1,
+        Action(
+            turn=3, player=Player.SELF, action_type=ActionType.PLAY_CARD, card_id="c1",
+            context={"turn": 3, "self_pp": 3, "self_board_count": 1, "opponent_board_count": 2},
+        ),
+    )
+    m2 = log.start_match(self_clan="エルフ", opponent_clan="ロイヤル")
+    log.log_action(
+        m2,
+        Action(
+            turn=5, player=Player.SELF, action_type=ActionType.PLAY_CARD, card_id="c1",
+            context={"turn": 5, "self_pp": 5, "self_board_count": 3, "opponent_board_count": 0},
+        ),
+    )
+
+    situations = log.card_play_situations("c1", Player.SELF)
+    assert len(situations) == 2
+    assert situations[0]["turn"] == 3
+
+    summary = log.card_play_context_summary("c1", Player.SELF, opponent_clan="ロイヤル")
+    assert summary["samples"] == 2
+    assert summary["avg_turn"] == 4.0
+    assert summary["avg_pp"] == 4.0
+    assert summary["avg_own_board_count"] == 2.0
+    assert summary["avg_opponent_board_count"] == 1.0
+
+    log.close()
+
+
+def test_card_play_context_summary_none_without_records(tmp_path):
+    log = MatchLog(tmp_path / "matches.db")
+    assert log.card_play_context_summary("nope", Player.SELF) is None
+    log.close()
+
+
+def test_migration_adds_context_column_to_old_db(tmp_path):
+    import sqlite3
+
+    db_path = tmp_path / "old.db"
+    # context カラムが無い旧スキーマを手で作る
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript(
+        """CREATE TABLE matches (id INTEGER PRIMARY KEY AUTOINCREMENT, started_at REAL NOT NULL,
+               ended_at REAL, self_clan TEXT, opponent_clan TEXT, result TEXT);
+           CREATE TABLE actions (id INTEGER PRIMARY KEY AUTOINCREMENT, match_id INTEGER NOT NULL,
+               turn INTEGER NOT NULL, player TEXT NOT NULL, action_type TEXT NOT NULL,
+               card_id TEXT, card_name TEXT, detail TEXT, timestamp REAL NOT NULL);"""
+    )
+    conn.commit()
+    conn.close()
+
+    log = MatchLog(db_path)  # マイグレーションが走る
+    cols = {row[1] for row in log._conn.execute("PRAGMA table_info(actions)").fetchall()}
+    assert "context" in cols
+
+    m = log.start_match(self_clan="エルフ", opponent_clan="ロイヤル")
+    log.log_action(
+        m, Action(turn=1, player=Player.SELF, action_type=ActionType.PLAY_CARD, card_id="c1", context={"turn": 1})
+    )
+    assert len(log.card_play_situations("c1", Player.SELF)) == 1
+    log.close()

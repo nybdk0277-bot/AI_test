@@ -39,6 +39,9 @@ class Action:
     card_name: Optional[str] = None
     detail: str = ""
     timestamp: float = field(default_factory=time.time)
+    # このアクションが起きたときの局面スナップショット(PP・ライフ・盤面など)。
+    # 後から「どんな状況でこのカードを出したか」を考察できるよう記録する。
+    context: Optional[dict] = None
 
     def to_dict(self) -> dict:
         return {
@@ -49,6 +52,7 @@ class Action:
             "card_name": self.card_name,
             "detail": self.detail,
             "timestamp": self.timestamp,
+            "context": self.context,
         }
 
 

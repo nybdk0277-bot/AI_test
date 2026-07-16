@@ -191,3 +191,39 @@ class MatchTracker:
     def set_life(self, self_life: int, opponent_life: int) -> None:
         self.state.self_life = self_life
         self.state.opponent_life = opponent_life
+
+    def situation_snapshot(self) -> dict:
+        """アクション記録に紐づける「そのときの局面」のスナップショットを作る.
+
+        後から「何ターン目・何PPのときに・どんな盤面/ライフ状況でそのカードを出したか」を
+        考察できるようにするための情報。Noneや0はその時点で未取得/初期値。
+        """
+        s = self.state
+        return {
+            "turn": s.turn,
+            "active_player": s.active_player.value if s.active_player else None,
+            "self_pp": s.self_pp,
+            "self_max_pp": s.self_max_pp,
+            "self_extra_pp": s.self_extra_pp,
+            "opponent_pp": s.opponent_pp,
+            "opponent_max_pp": s.opponent_max_pp,
+            "self_life": s.self_life,
+            "opponent_life": s.opponent_life,
+            "self_ep": s.self_ep,
+            "self_sep": s.self_sep,
+            "opponent_ep": s.opponent_ep,
+            "opponent_sep": s.opponent_sep,
+            "self_board_ids": [u.card_id for u in s.self_board],
+            "opponent_board_ids": [u.card_id for u in s.opponent_board],
+            "self_board_count": len(s.self_board),
+            "opponent_board_count": len(s.opponent_board),
+            "combo_count": s.combo_count,
+            "self_hand_count": s.self_hand_count,
+            "self_deck_count": s.self_deck_count,
+            "self_cemetery_count": s.self_cemetery_count,
+            "opponent_hand_count": s.opponent_hand_count,
+            "opponent_deck_count": s.opponent_deck_count,
+            "opponent_cemetery_count": s.opponent_cemetery_count,
+            "self_crest_count": s.self_crest_count,
+            "opponent_crest_count": s.opponent_crest_count,
+        }
