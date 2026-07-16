@@ -235,7 +235,9 @@ def import_from_local(images_dir: Path, metadata_csv: Path, hash_size: int = 16)
     """手元のカード画像フォルダ + メタ情報CSVからDBを構築する.
 
     CSVヘッダ: card_id,name,clan,cost,card_type,rarity,filename
-    [,base_atk,base_hp,card_set_id,max_pp_boost,pp_recover,ep_recover]
+    [,base_atk,base_hp,card_set_id,max_pp_boost,pp_recover,ep_recover,is_token]
+    is_token に 1 を指定するとトークン(効果生成カード)扱いになり、統計で独立した
+    プレイとして数えなくなる(生成元カード自身のプレイだけを数える)。
     filename は images_dir 内の画像ファイル名。card_set_id はローテーション絞り込みに使う
     カードセット(弾)番号(省略可、無ければローテーション判定で除外されない)。
     max_pp_boost/pp_recover/ep_recover は効果によるPP上限増加・PP回復・進化ポイント回復量
@@ -261,6 +263,7 @@ def import_from_local(images_dir: Path, metadata_csv: Path, hash_size: int = 16)
                 max_pp_boost=int(row["max_pp_boost"]) if row.get("max_pp_boost") else 0,
                 pp_recover=int(row["pp_recover"]) if row.get("pp_recover") else 0,
                 ep_recover=int(row["ep_recover"]) if row.get("ep_recover") else 0,
+                is_token=str(row.get("is_token", "")).strip() in ("1", "true", "True", "yes"),
             )
             image_file = images_dir / row["filename"]
             if image_file.exists():

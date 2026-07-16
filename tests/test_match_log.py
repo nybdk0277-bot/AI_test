@@ -308,3 +308,17 @@ def test_set_first_player_does_not_overwrite(tmp_path):
     row = log._conn.execute("SELECT first_player FROM matches WHERE id = ?", (m,)).fetchone()
     assert row[0] == "opponent"
     log.close()
+
+
+def test_self_card_pool_returns_self_plays_only(tmp_path):
+    log = MatchLog(tmp_path / "matches.db")
+    m = log.start_match(self_clan="エルフ", opponent_clan="ロイヤル")
+    log.log_action(m, Action(turn=2, player=Player.SELF, action_type=ActionType.PLAY_CARD, card_id="mine"))
+    log.log_action(m, Action(turn=3, player=Player.OPPONENT, action_type=ActionType.PLAY_CARD, card_id="theirs"))
+    log.end_match(m, "win")
+
+    self_pool = dict(log.self_card_pool("ロイヤル"))
+    opp_pool = dict(log.opponent_card_pool("ロイヤル"))
+    assert "mine" in self_pool and "theirs" not in self_pool
+    assert "theirs" in opp_pool and "mine" not in opp_pool
+    log.close()

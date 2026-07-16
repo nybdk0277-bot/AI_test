@@ -914,6 +914,13 @@ class StatsTab(ttk.Frame):
         self.clan_var = tk.StringVar()
         ttk.Entry(form, textvariable=self.clan_var, width=16).pack(side="left", padx=4)
 
+        ttk.Label(form, text="視点:").pack(side="left", padx=(8, 0))
+        self.perspective_var = tk.StringVar(value="相手のカード")
+        ttk.Combobox(
+            form, textvariable=self.perspective_var, state="readonly",
+            values=["相手のカード", "自分のカード"], width=12,
+        ).pack(side="left", padx=4)
+
         ttk.Label(form, text="勝敗:").pack(side="left", padx=(12, 0))
         self.result_var = tk.StringVar(value="すべて")
         ttk.Combobox(
@@ -973,6 +980,11 @@ class StatsTab(ttk.Frame):
         first_player = {"相手が先攻": "opponent", "相手が後攻": "self"}.get(self.first_var.get())
         return result, first_player
 
+    def _current_player(self):
+        from svtracker.game.models import Player
+
+        return Player.SELF if self.perspective_var.get() == "自分のカード" else Player.OPPONENT
+
     def _refresh(self) -> None:
         clan = self.clan_var.get()
         if not clan:
@@ -986,10 +998,13 @@ class StatsTab(ttk.Frame):
             self.prob_tree.delete(row)
         self._row_card_ids = {}
 
+        from svtracker.game.models import Player
+
+        player = self._current_player()
         log = MatchLog(self.app.settings.match_db_path)
         try:
             win_stats = log.match_results(opponent_clan=clan)
-            pool = log.opponent_card_pool(clan)
+            pool = log.self_card_pool(clan) if player == Player.SELF else log.opponent_card_pool(clan)
         finally:
             log.close()
 
@@ -1000,8 +1015,11 @@ class StatsTab(ttk.Frame):
         else:
             self.win_rate_var.set("戦績: 記録なし")
 
+        subject = "自分" if player == Player.SELF else "相手"
+        self.tree.heading("name", text=f"{subject}が使ったカード")
+
         if not pool:
-            messagebox.showinfo("記録なし", f"クラス '{clan}' の対戦記録が見つかりませんでした。")
+            messagebox.showinfo("記録なし", f"クラス '{clan}' 相手の{subject}のプレイ記録が見つかりませんでした。")
             return
 
         db = CardDatabase.load(self.app.settings.card_db_path)
@@ -1013,8 +1031,6 @@ class StatsTab(ttk.Frame):
 
     def _show_turn_probabilities(self) -> None:
         """選択されたカードの、ターン(=PP)ごとのプレイ確率を右側に表示する."""
-        from svtracker.game.models import Player
-
         for row in self.prob_tree.get_children():
             self.prob_tree.delete(row)
         selection = self.tree.selection()
@@ -1029,7 +1045,7 @@ class StatsTab(ttk.Frame):
         log = MatchLog(self.app.settings.match_db_path)
         try:
             rows = log.card_play_probability_by_turn(
-                card_id, Player.OPPONENT, clan, result=result, first_player=first_player
+                card_id, self._current_player(), clan, result=result, first_player=first_player
             )
         finally:
             log.close()

@@ -254,6 +254,14 @@ class MatchLog:
     def opponent_card_pool(self, opponent_clan: str, limit: int = 200) -> list[tuple[str, int]]:
         """そのクラス相手に過去プレイされたカードと、プレイされた対戦数の一覧
         (頻度が高い順)。predictorが候補を絞り込む際の材料にする。"""
+        return self._card_pool(opponent_clan, Player.OPPONENT, limit)
+
+    def self_card_pool(self, opponent_clan: str, limit: int = 200) -> list[tuple[str, int]]:
+        """そのクラス相手の対戦で、自分が過去プレイしたカードと対戦数の一覧(頻度順)。
+        統計タブの「自分視点」で使う。"""
+        return self._card_pool(opponent_clan, Player.SELF, limit)
+
+    def _card_pool(self, opponent_clan: str, player: Player, limit: int) -> list[tuple[str, int]]:
         with closing(self._conn.cursor()) as cur:
             cur.execute(
                 """SELECT actions.card_id, COUNT(DISTINCT actions.match_id) AS n
@@ -263,28 +271,28 @@ class MatchLog:
                    GROUP BY actions.card_id
                    ORDER BY n DESC
                    LIMIT ?""",
-                (opponent_clan, Player.OPPONENT.value, ActionType.PLAY_CARD.value, limit),
+                (opponent_clan, player.value, ActionType.PLAY_CARD.value, limit),
             )
             return list(cur.fetchall())
 
     def _filtered_match_max_turns(
         self,
-        clan_column: str,
-        clan: str,
+        opponent_clan: str,
         result: Optional[str] = None,
         first_player: Optional[str] = None,
     ) -> dict[int, int]:
         """条件に合う対戦の {match_id: そのマッチで到達した最大ターン} を返す.
 
+        対戦は常に opponent_clan(相手クラス=マッチアップ)で絞る。さらに
         result("win"/"loss")、first_player("self"/"opponent")で絞り込める。
         「そのターンに到達したマッチ数」(確率の分母)を数えるための基礎データ。
         """
         query = (
-            f"SELECT matches.id, COALESCE(MAX(actions.turn), 0) "
-            f"FROM matches LEFT JOIN actions ON actions.match_id = matches.id "
-            f"WHERE matches.{clan_column} = ?"
+            "SELECT matches.id, COALESCE(MAX(actions.turn), 0) "
+            "FROM matches LEFT JOIN actions ON actions.match_id = matches.id "
+            "WHERE matches.opponent_clan = ?"
         )
-        params: list = [clan]
+        params: list = [opponent_clan]
         if result is not None:
             query += " AND matches.result = ?"
             params.append(result)
@@ -299,7 +307,7 @@ class MatchLog:
         self,
         card_id: str,
         player: Player,
-        clan: str,
+        opponent_clan: str,
         result: Optional[str] = None,
         first_player: Optional[str] = None,
     ) -> list[tuple[int, int, int, float]]:
@@ -307,12 +315,11 @@ class MatchLog:
         ターンごとに返す。戻り値は (turn, played_matches, reached_matches, probability) のリスト。
 
         平均だと3枚積みや複数ターンで濁るため、条件付き確率で「6PP(=6ターン目)に
-        達したゲームで相手がこのカードを出す確率」を出せるようにしたもの。
-        player=OPPONENT なら clan は opponent_clan、SELF なら self_clan で絞り込む。
+        達したゲームでこのカードを出す確率」を出せるようにしたもの。対戦は opponent_clan
+        (マッチアップ)で絞り、player でどちらのプレイを数えるか選ぶ(相手視点/自分視点)。
         result / first_player でさらに勝敗別・先後別に分けられる。
         """
-        clan_column = "opponent_clan" if player == Player.OPPONENT else "self_clan"
-        max_turns = self._filtered_match_max_turns(clan_column, clan, result, first_player)
+        max_turns = self._filtered_match_max_turns(opponent_clan, result, first_player)
         if not max_turns:
             return []
         match_ids = set(max_turns)
