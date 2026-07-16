@@ -918,11 +918,25 @@ class StatsTab(ttk.Frame):
         self.win_rate_var = tk.StringVar(value="")
         ttk.Label(self, textvariable=self.win_rate_var, font=("", 10, "bold")).pack(anchor="w", pady=(8, 0))
 
-        columns = ("name", "count")
+        columns = ("name", "count", "avg_turn", "avg_pp", "avg_board")
         self.tree = ttk.Treeview(self, columns=columns, show="headings")
         self.tree.heading("name", text="カード名")
-        self.tree.heading("count", text="使用された試合数")
+        self.tree.heading("count", text="使用試合数")
+        self.tree.heading("avg_turn", text="平均ターン")
+        self.tree.heading("avg_pp", text="平均PP")
+        self.tree.heading("avg_board", text="平均盤面数(自/相)")
+        self.tree.column("count", width=90, anchor="center")
+        self.tree.column("avg_turn", width=90, anchor="center")
+        self.tree.column("avg_pp", width=80, anchor="center")
+        self.tree.column("avg_board", width=130, anchor="center")
         self.tree.pack(fill="both", expand=True, pady=(8, 0))
+        ttk.Label(
+            self,
+            text="平均ターン/PP/盤面数は、そのカードがプレイされたときの局面記録(コンテキスト)から集計。"
+            "数値UIをキャリブレーションしているほど埋まります。",
+            foreground="#888",
+            wraplength=700,
+        ).pack(anchor="w", pady=(4, 0))
 
     def _refresh(self) -> None:
         clan = self.clan_var.get()
@@ -934,10 +948,16 @@ class StatsTab(ttk.Frame):
         for row in self.tree.get_children():
             self.tree.delete(row)
 
+        from svtracker.game.models import Player
+
         log = MatchLog(self.app.settings.match_db_path)
         try:
             win_stats = log.match_results(opponent_clan=clan)
             pool = log.opponent_card_pool(clan)
+            summaries = {
+                card_id: log.card_play_context_summary(card_id, Player.OPPONENT, opponent_clan=clan)
+                for card_id, _count in pool
+            }
         finally:
             log.close()
 
@@ -956,7 +976,20 @@ class StatsTab(ttk.Frame):
         for card_id, count in pool:
             card = db.get(card_id)
             name = card.name if card else card_id
-            self.tree.insert("", "end", values=(name, count))
+            summary = summaries.get(card_id)
+            if summary:
+                avg_turn = f"{summary['avg_turn']:.1f}" if summary["avg_turn"] is not None else "-"
+                avg_pp = f"{summary['avg_pp']:.1f}" if summary["avg_pp"] is not None else "-"
+                self_b = summary["avg_self_board_count"]
+                opp_b = summary["avg_opponent_board_count"]
+                avg_board = (
+                    f"{self_b:.1f}/{opp_b:.1f}"
+                    if self_b is not None and opp_b is not None
+                    else "-"
+                )
+            else:
+                avg_turn = avg_pp = avg_board = "-"
+            self.tree.insert("", "end", values=(name, count, avg_turn, avg_pp, avg_board))
 
 
 def main() -> int:

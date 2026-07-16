@@ -493,10 +493,16 @@ class MonitorApp:
             deduped.append(action)
         new_actions = deduped
 
+        # このフレームの局面スナップショットを、この後記録する全アクションに紐づける
+        # (何ターン目・何PP・盤面何体…でそのカードを出したか、を後から考察できるように)
+        situation = self.tracker.situation_snapshot()
+
         for action in new_actions:
             card = self.database.get(action.card_id) if action.card_id else None
             if card:
                 action.card_name = card.name
+            if action.context is None:
+                action.context = situation
             self.tracker.record_action(action)
             if self.match_log is not None and self.match_id is not None:
                 self.match_log.log_action(self.match_id, action)
