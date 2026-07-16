@@ -72,6 +72,24 @@ def test_parse_card_common_falls_back_for_unknown_type_and_rarity():
     assert card.rarity == ""
 
 
+def test_parse_card_common_collectible_card_is_not_token():
+    # レアリティが4種のいずれか(=収録カード)ならトークンではない
+    common = {"card_id": 1, "name": "収録カード", "class": 1, "cost": 2, "type": 1, "rarity": 4, "atk": 2, "life": 2}
+    card = _parse_card_common(common)
+    assert card.is_token is False
+    assert card.rarity == "レジェンド"
+
+
+def test_parse_card_common_no_rarity_is_token():
+    # レアリティが無い/未知(トークン。例: ソードクリスタリア・イヴ)は is_token=True
+    for rarity_value in (0, None, 9):
+        common = {"card_id": 1, "name": "トークン", "class": 1, "cost": 3, "type": 1, "atk": 3, "life": 3}
+        if rarity_value is not None:
+            common["rarity"] = rarity_value
+        card = _parse_card_common(common)
+        assert card.is_token is True, rarity_value
+
+
 def test_parse_card_common_without_card_id_returns_none():
     assert _parse_card_common({"name": "no id"}) is None
 
@@ -302,72 +320,3 @@ def test_import_from_local_reads_is_token_column(tmp_path):
     db = import_from_local(images_dir, csv_path)
     assert db.get("tok1").is_token is True
     assert db.get("norm1").is_token is False
-
-
-def test_extract_generated_names_picks_up_generation_phrases():
-    from svtracker.cards.card_fetcher import _extract_generated_names
-
-    text = "【ファンファーレ】『新緑のフェアリー』3枚を自分の場に出す。1ターンに2回攻撃できる。"
-    assert _extract_generated_names(text) == {"新緑のフェアリー"}
-
-    # 生成を伴わない参照(手札に加える等)は拾わない
-    assert _extract_generated_names("『レジェンドカード』を手札に加える。") == set()
-
-    # 召喚・生成も対象
-    assert _extract_generated_names("『兵士』を2体召喚する。") == {"兵士"}
-    assert _extract_generated_names("『幽霊』を1枚生成。") == {"幽霊"}
-
-
-def test_flag_tokens_by_generation_text_sets_is_token():
-    from svtracker.cards.card_database import CardDatabase
-    from svtracker.cards.card_fetcher import flag_tokens_by_generation_text
-    from svtracker.cards.models import Card
-
-    db = CardDatabase()
-    db.add(Card(card_id="gen", name="オルテニア", clan="エルフ", cost=7, card_type="フォロワー"))
-    db.add(Card(card_id="tok", name="新緑のフェアリー", clan="エルフ", cost=1, card_type="フォロワー"))
-    db.add(Card(card_id="norm", name="普通のカード", clan="エルフ", cost=2, card_type="フォロワー"))
-
-    count = flag_tokens_by_generation_text(db, {"新緑のフェアリー"})
-
-    assert count == 1
-    assert db.get("tok").is_token is True
-    assert db.get("gen").is_token is False
-    assert db.get("norm").is_token is False
-
-
-def test_fetch_from_official_site_auto_flags_tokens_from_text(tmp_path, monkeypatch):
-    monkeypatch.setattr(card_fetcher.time, "sleep", lambda _seconds: None)
-
-    page = {
-        "data": {
-            "count": 2,
-            "sort_card_id_list": [1, 2],
-            "card_details": {
-                "1": {
-                    "common": {
-                        "card_id": 1, "name": "生成元カード", "class": 1, "cost": 5,
-                        "type": 1, "rarity": 4, "atk": 3, "life": 3, "card_image_hash": None,
-                    },
-                    "skill": {"text": "【ファンファーレ】『妖精』2枚を自分の場に出す。"},
-                },
-                "2": {
-                    "common": {
-                        "card_id": 2, "name": "妖精", "class": 1, "cost": 1,
-                        "type": 1, "rarity": 1, "atk": 1, "life": 1, "card_image_hash": None,
-                    }
-                },
-            },
-        }
-    }
-    prime = MagicMock()
-    resp = MagicMock()
-    resp.json.return_value = page
-    resp.raise_for_status.return_value = None
-    session = MagicMock()
-    session.get.side_effect = [prime, resp]
-
-    db = fetch_from_official_site(base_url="https://example.test", images_dir=tmp_path, session=session)
-
-    assert db.get("2").is_token is True  # 妖精は生成テキストから自動でトークン判定
-    assert db.get("1").is_token is False
