@@ -419,6 +419,16 @@ class MonitorApp:
         self._sync_battle_log_counts(frame)
         self._sync_crest_slots(frame)
 
+        # 先攻プレイヤーの記録: ターン1で手番が判明していれば、その手番側が先攻。
+        # (手番判定ピクセルをキャリブレーションしている場合のみ埋まる)
+        if (
+            self.match_log is not None
+            and self.match_id is not None
+            and self.tracker.state.turn <= 1
+            and self.tracker.state.active_player is not None
+        ):
+            self.match_log.set_first_player(self.match_id, self.tracker.state.active_player.value)
+
         # 実UIにはターン数の常時表示が無い(実対戦動画で確認)ため、PP最大値(自分/相手の
         # 大きい方)をターン数の下限として使う。turn_indicator が読めている場合はそちらが優先
         # (sync_turnは値が進む方向にしか更新しないためOCR値と競合しない)。

@@ -913,30 +913,65 @@ class StatsTab(ttk.Frame):
         ttk.Label(form, text="相手クラス:").pack(side="left")
         self.clan_var = tk.StringVar()
         ttk.Entry(form, textvariable=self.clan_var, width=16).pack(side="left", padx=4)
-        ttk.Button(form, text="表示", command=self._refresh).pack(side="left")
+
+        ttk.Label(form, text="勝敗:").pack(side="left", padx=(12, 0))
+        self.result_var = tk.StringVar(value="すべて")
+        ttk.Combobox(
+            form, textvariable=self.result_var, state="readonly",
+            values=["すべて", "勝ち試合のみ", "負け試合のみ"], width=12,
+        ).pack(side="left", padx=4)
+
+        ttk.Label(form, text="先後:").pack(side="left", padx=(8, 0))
+        self.first_var = tk.StringVar(value="すべて")
+        ttk.Combobox(
+            form, textvariable=self.first_var, state="readonly",
+            values=["すべて", "相手が先攻", "相手が後攻"], width=12,
+        ).pack(side="left", padx=4)
+
+        ttk.Button(form, text="表示", command=self._refresh).pack(side="left", padx=(8, 0))
 
         self.win_rate_var = tk.StringVar(value="")
         ttk.Label(self, textvariable=self.win_rate_var, font=("", 10, "bold")).pack(anchor="w", pady=(8, 0))
 
-        columns = ("name", "count", "avg_turn", "avg_pp", "avg_board")
-        self.tree = ttk.Treeview(self, columns=columns, show="headings")
-        self.tree.heading("name", text="カード名")
+        body = ttk.Frame(self)
+        body.pack(fill="both", expand=True, pady=(8, 0))
+
+        left = ttk.Frame(body)
+        left.pack(side="left", fill="both", expand=True)
+        columns = ("name", "count")
+        self.tree = ttk.Treeview(left, columns=columns, show="headings")
+        self.tree.heading("name", text="相手が使ったカード")
         self.tree.heading("count", text="使用試合数")
-        self.tree.heading("avg_turn", text="平均ターン")
-        self.tree.heading("avg_pp", text="平均PP")
-        self.tree.heading("avg_board", text="平均盤面数(自/相)")
         self.tree.column("count", width=90, anchor="center")
-        self.tree.column("avg_turn", width=90, anchor="center")
-        self.tree.column("avg_pp", width=80, anchor="center")
-        self.tree.column("avg_board", width=130, anchor="center")
-        self.tree.pack(fill="both", expand=True, pady=(8, 0))
+        self.tree.pack(fill="both", expand=True)
+        self.tree.bind("<<TreeviewSelect>>", lambda e: self._show_turn_probabilities())
+
+        right = ttk.Frame(body, padding=(12, 0, 0, 0))
+        right.pack(side="right", fill="y")
+        ttk.Label(right, text="ターン別プレイ確率", font=("", 10, "bold")).pack(anchor="w")
         ttk.Label(
-            self,
-            text="平均ターン/PP/盤面数は、そのカードがプレイされたときの局面記録(コンテキスト)から集計。"
-            "数値UIをキャリブレーションしているほど埋まります。",
+            right,
+            text="左でカードを選ぶと、そのターン(=PP)に到達した試合のうち\n何%でそのカードが出たかを表示します。",
             foreground="#888",
-            wraplength=700,
-        ).pack(anchor="w", pady=(4, 0))
+            justify="left",
+        ).pack(anchor="w", pady=(0, 4))
+        prob_cols = ("turn", "prob", "n")
+        self.prob_tree = ttk.Treeview(right, columns=prob_cols, show="headings", height=14)
+        self.prob_tree.heading("turn", text="ターン/PP")
+        self.prob_tree.heading("prob", text="確率")
+        self.prob_tree.heading("n", text="出た/到達")
+        self.prob_tree.column("turn", width=80, anchor="center")
+        self.prob_tree.column("prob", width=70, anchor="center")
+        self.prob_tree.column("n", width=90, anchor="center")
+        self.prob_tree.pack(fill="y")
+
+        # card_id を各行に紐づけて確率表示に使う
+        self._row_card_ids: dict[str, str] = {}
+
+    def _current_filters(self) -> tuple[Optional[str], Optional[str]]:
+        result = {"勝ち試合のみ": "win", "負け試合のみ": "loss"}.get(self.result_var.get())
+        first_player = {"相手が先攻": "opponent", "相手が後攻": "self"}.get(self.first_var.get())
+        return result, first_player
 
     def _refresh(self) -> None:
         clan = self.clan_var.get()
@@ -947,17 +982,14 @@ class StatsTab(ttk.Frame):
             return
         for row in self.tree.get_children():
             self.tree.delete(row)
-
-        from svtracker.game.models import Player
+        for row in self.prob_tree.get_children():
+            self.prob_tree.delete(row)
+        self._row_card_ids = {}
 
         log = MatchLog(self.app.settings.match_db_path)
         try:
             win_stats = log.match_results(opponent_clan=clan)
             pool = log.opponent_card_pool(clan)
-            summaries = {
-                card_id: log.card_play_context_summary(card_id, Player.OPPONENT, opponent_clan=clan)
-                for card_id, _count in pool
-            }
         finally:
             log.close()
 
@@ -976,20 +1008,36 @@ class StatsTab(ttk.Frame):
         for card_id, count in pool:
             card = db.get(card_id)
             name = card.name if card else card_id
-            summary = summaries.get(card_id)
-            if summary:
-                avg_turn = f"{summary['avg_turn']:.1f}" if summary["avg_turn"] is not None else "-"
-                avg_pp = f"{summary['avg_pp']:.1f}" if summary["avg_pp"] is not None else "-"
-                self_b = summary["avg_self_board_count"]
-                opp_b = summary["avg_opponent_board_count"]
-                avg_board = (
-                    f"{self_b:.1f}/{opp_b:.1f}"
-                    if self_b is not None and opp_b is not None
-                    else "-"
-                )
-            else:
-                avg_turn = avg_pp = avg_board = "-"
-            self.tree.insert("", "end", values=(name, count, avg_turn, avg_pp, avg_board))
+            item = self.tree.insert("", "end", values=(name, count))
+            self._row_card_ids[item] = card_id
+
+    def _show_turn_probabilities(self) -> None:
+        """選択されたカードの、ターン(=PP)ごとのプレイ確率を右側に表示する."""
+        from svtracker.game.models import Player
+
+        for row in self.prob_tree.get_children():
+            self.prob_tree.delete(row)
+        selection = self.tree.selection()
+        if not selection:
+            return
+        card_id = self._row_card_ids.get(selection[0])
+        clan = self.clan_var.get()
+        if not card_id or not clan:
+            return
+        result, first_player = self._current_filters()
+
+        log = MatchLog(self.app.settings.match_db_path)
+        try:
+            rows = log.card_play_probability_by_turn(
+                card_id, Player.OPPONENT, clan, result=result, first_player=first_player
+            )
+        finally:
+            log.close()
+
+        for turn, played, reached, prob in rows:
+            if played == 0:
+                continue  # 一度も出ていないターンは省略して見やすくする
+            self.prob_tree.insert("", "end", values=(f"{turn}", f"{prob:.0%}", f"{played}/{reached}"))
 
 
 def main() -> int:
