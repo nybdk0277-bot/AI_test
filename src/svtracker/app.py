@@ -514,13 +514,19 @@ class MonitorApp:
             if action.context is None:
                 action.context = situation
             self.tracker.record_action(action)
-            if self.match_log is not None and self.match_id is not None:
+            # トークン(効果生成カード)のプレイ表示は、プレイ判断ではなく生成元カードの
+            # プレイの結果なので、統計DBには記録しない(生成元カード自身のプレイだけを数える)。
+            is_token_play = (
+                action.action_type == ActionType.PLAY_CARD and card is not None and card.is_token
+            )
+            if self.match_log is not None and self.match_id is not None and not is_token_play:
                 self.match_log.log_action(self.match_id, action)
             if action.action_type == ActionType.PLAY_CARD:
+                label = "を生成(トークン)" if is_token_play else "をプレイ"
                 logger.info(
-                    "[turn %s] %s が %s をプレイ", action.turn, action.player.value, action.card_name or action.card_id
+                    "[turn %s] %s が %s%s", action.turn, action.player.value, action.card_name or action.card_id, label
                 )
-                # プレイされたフォロワーは盤面に出たとみなして推定盤面に追加する
+                # プレイ/生成されたフォロワーは盤面に出たとみなして推定盤面に追加する
                 # (盤面の画像照合は演出の重なりで機能しないため、履歴からの推定で代替)
                 if (
                     card is not None

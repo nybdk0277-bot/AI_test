@@ -29,6 +29,10 @@ class Card:
     max_pp_boost: int = 0  # プレイすると永続的にPP上限が+Nされる
     pp_recover: int = 0  # プレイするとそのターンのPPが+N回復する
     ep_recover: int = 0  # プレイすると進化ポイントが+N回復する
+    # トークン(効果で生成されるカード)かどうか。トークンの盤面出現は「プレイした」という
+    # 判断ではなく生成元カードのプレイの結果なので、統計では独立したプレイとして数えない。
+    # `import-cards`のCSVで is_token=1 を指定した場合のみTrueになる。
+    is_token: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -46,6 +50,7 @@ class Card:
             "max_pp_boost": self.max_pp_boost,
             "pp_recover": self.pp_recover,
             "ep_recover": self.ep_recover,
+            "is_token": self.is_token,
         }
 
     @classmethod
@@ -65,4 +70,5 @@ class Card:
             max_pp_boost=int(data.get("max_pp_boost") or 0),
             pp_recover=int(data.get("pp_recover") or 0),
             ep_recover=int(data.get("ep_recover") or 0),
+            is_token=bool(data.get("is_token")),
         )

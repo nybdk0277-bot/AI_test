@@ -286,3 +286,19 @@ def test_fetch_from_official_site_continues_when_cookie_priming_fails(tmp_path, 
 
     assert len(db) == 0
     assert session.get.call_count == 2
+
+
+def test_import_from_local_reads_is_token_column(tmp_path):
+    images_dir = tmp_path / "images"
+    images_dir.mkdir()
+    Image.new("RGB", (32, 32), color="green").save(images_dir / "t.png")
+    csv_path = tmp_path / "tokens.csv"
+    csv_path.write_text(
+        "card_id,name,clan,cost,card_type,rarity,filename,is_token\n"
+        "tok1,妖精,エルフ,1,フォロワー,ブロンズ,t.png,1\n"
+        "norm1,通常,エルフ,2,フォロワー,ブロンズ,t.png,\n",
+        encoding="utf-8",
+    )
+    db = import_from_local(images_dir, csv_path)
+    assert db.get("tok1").is_token is True
+    assert db.get("norm1").is_token is False
