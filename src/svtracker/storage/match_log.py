@@ -40,7 +40,8 @@ CREATE TABLE IF NOT EXISTS matches (
     ended_at REAL,
     self_clan TEXT,
     opponent_clan TEXT,
-    result TEXT
+    result TEXT,
+    first_player TEXT
 );
 
 CREATE TABLE IF NOT EXISTS actions (
@@ -71,11 +72,14 @@ class MatchLog:
         self._conn.commit()
 
     def _migrate(self) -> None:
-        """古いDB(contextカラムが無い)を新スキーマへ追従させる."""
+        """古いDB(新カラムが無い)を新スキーマへ追従させる."""
         with closing(self._conn.cursor()) as cur:
-            cols = {row[1] for row in cur.execute("PRAGMA table_info(actions)").fetchall()}
-            if "context" not in cols:
+            action_cols = {row[1] for row in cur.execute("PRAGMA table_info(actions)").fetchall()}
+            if "context" not in action_cols:
                 cur.execute("ALTER TABLE actions ADD COLUMN context TEXT")
+            match_cols = {row[1] for row in cur.execute("PRAGMA table_info(matches)").fetchall()}
+            if "first_player" not in match_cols:
+                cur.execute("ALTER TABLE matches ADD COLUMN first_player TEXT")
 
     def close(self) -> None:
         self._conn.close()
@@ -125,6 +129,15 @@ class MatchLog:
                 cur.execute("UPDATE matches SET self_clan = ? WHERE id = ?", (self_clan, match_id))
             if opponent_clan is not None:
                 cur.execute("UPDATE matches SET opponent_clan = ? WHERE id = ?", (opponent_clan, match_id))
+            self._conn.commit()
+
+    def set_first_player(self, match_id: int, first_player: str) -> None:
+        """先攻プレイヤー("self"/"opponent")を記録する。既に記録済みなら上書きしない."""
+        with closing(self._conn.cursor()) as cur:
+            cur.execute(
+                "UPDATE matches SET first_player = ? WHERE id = ? AND first_player IS NULL",
+                (first_player, match_id),
+            )
             self._conn.commit()
 
     def end_match(self, match_id: int, result: str) -> None:
@@ -253,6 +266,81 @@ class MatchLog:
                 (opponent_clan, Player.OPPONENT.value, ActionType.PLAY_CARD.value, limit),
             )
             return list(cur.fetchall())
+
+    def _filtered_match_max_turns(
+        self,
+        clan_column: str,
+        clan: str,
+        result: Optional[str] = None,
+        first_player: Optional[str] = None,
+    ) -> dict[int, int]:
+        """条件に合う対戦の {match_id: そのマッチで到達した最大ターン} を返す.
+
+        result("win"/"loss")、first_player("self"/"opponent")で絞り込める。
+        「そのターンに到達したマッチ数」(確率の分母)を数えるための基礎データ。
+        """
+        query = (
+            f"SELECT matches.id, COALESCE(MAX(actions.turn), 0) "
+            f"FROM matches LEFT JOIN actions ON actions.match_id = matches.id "
+            f"WHERE matches.{clan_column} = ?"
+        )
+        params: list = [clan]
+        if result is not None:
+            query += " AND matches.result = ?"
+            params.append(result)
+        if first_player is not None:
+            query += " AND matches.first_player = ?"
+            params.append(first_player)
+        query += " GROUP BY matches.id"
+        with closing(self._conn.cursor()) as cur:
+            return {mid: max_turn for mid, max_turn in cur.execute(query, params).fetchall()}
+
+    def card_play_probability_by_turn(
+        self,
+        card_id: str,
+        player: Player,
+        clan: str,
+        result: Optional[str] = None,
+        first_player: Optional[str] = None,
+    ) -> list[tuple[int, int, int, float]]:
+        """「そのターン(=そのPP)に到達したマッチのうち、そのカードを出した割合」を
+        ターンごとに返す。戻り値は (turn, played_matches, reached_matches, probability) のリスト。
+
+        平均だと3枚積みや複数ターンで濁るため、条件付き確率で「6PP(=6ターン目)に
+        達したゲームで相手がこのカードを出す確率」を出せるようにしたもの。
+        player=OPPONENT なら clan は opponent_clan、SELF なら self_clan で絞り込む。
+        result / first_player でさらに勝敗別・先後別に分けられる。
+        """
+        clan_column = "opponent_clan" if player == Player.OPPONENT else "self_clan"
+        max_turns = self._filtered_match_max_turns(clan_column, clan, result, first_player)
+        if not max_turns:
+            return []
+        match_ids = set(max_turns)
+
+        # そのカードを「どのマッチの何ターン目に出したか」(1マッチ内の同ターン重複は除く)
+        placeholders = ",".join("?" for _ in match_ids)
+        query = (
+            f"SELECT DISTINCT actions.match_id, actions.turn FROM actions "
+            f"WHERE actions.player = ? AND actions.action_type = ? AND actions.card_id = ? "
+            f"AND actions.match_id IN ({placeholders})"
+        )
+        params = [player.value, ActionType.PLAY_CARD.value, card_id, *match_ids]
+        with closing(self._conn.cursor()) as cur:
+            play_rows = cur.execute(query, params).fetchall()
+
+        played_by_turn: dict[int, int] = {}
+        for _mid, turn in play_rows:
+            played_by_turn[turn] = played_by_turn.get(turn, 0) + 1
+
+        max_observed_turn = max(max_turns.values())
+        results: list[tuple[int, int, int, float]] = []
+        for turn in range(1, max_observed_turn + 1):
+            reached = sum(1 for mt in max_turns.values() if mt >= turn)
+            if reached == 0:
+                continue
+            played = played_by_turn.get(turn, 0)
+            results.append((turn, played, reached, played / reached))
+        return results
 
     def card_play_situations(
         self, card_id: str, player: Player, opponent_clan: Optional[str] = None

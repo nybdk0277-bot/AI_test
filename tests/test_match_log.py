@@ -236,3 +236,75 @@ def test_migration_adds_context_column_to_old_db(tmp_path):
     )
     assert len(log.card_play_situations("c1", Player.SELF)) == 1
     log.close()
+
+
+def _play(log, match_id, turn, card_id):
+    log.log_action(
+        match_id,
+        Action(turn=turn, player=Player.OPPONENT, action_type=ActionType.PLAY_CARD, card_id=card_id),
+    )
+
+
+def test_card_play_probability_by_turn_conditional(tmp_path):
+    log = MatchLog(tmp_path / "matches.db")
+
+    # 3試合すべてがターン6に到達。うち2試合でターン6にcardXを出した -> 66%
+    for i in range(3):
+        m = log.start_match(self_clan="エルフ", opponent_clan="ロイヤル")
+        _play(log, m, 6, "x" if i < 2 else "other")  # 全試合ターン6到達、2試合でxを出す
+        log.end_match(m, "win" if i == 0 else "loss")
+
+    rows = log.card_play_probability_by_turn("x", Player.OPPONENT, "ロイヤル")
+    by_turn = {t: (played, reached, prob) for t, played, reached, prob in rows}
+    # ターン6: xを出したのは2試合 / 到達3試合
+    assert by_turn[6][0] == 2
+    assert by_turn[6][1] == 3
+    assert abs(by_turn[6][2] - 2 / 3) < 1e-9
+
+    log.close()
+
+
+def test_card_play_probability_filters_by_result(tmp_path):
+    log = MatchLog(tmp_path / "matches.db")
+
+    m1 = log.start_match(self_clan="エルフ", opponent_clan="ロイヤル")
+    _play(log, m1, 3, "x")
+    log.end_match(m1, "win")
+    m2 = log.start_match(self_clan="エルフ", opponent_clan="ロイヤル")
+    _play(log, m2, 3, "x")
+    log.end_match(m2, "loss")
+
+    win_rows = log.card_play_probability_by_turn("x", Player.OPPONENT, "ロイヤル", result="win")
+    win_by_turn = {t: (played, reached) for t, played, reached, _ in win_rows}
+    assert win_by_turn[3] == (1, 1)  # 勝ち試合は1つ、そこで出している
+
+    log.close()
+
+
+def test_card_play_probability_filters_by_first_player(tmp_path):
+    log = MatchLog(tmp_path / "matches.db")
+
+    m1 = log.start_match(self_clan="エルフ", opponent_clan="ロイヤル")
+    log.set_first_player(m1, "opponent")
+    _play(log, m1, 2, "x")
+    log.end_match(m1, "win")
+    m2 = log.start_match(self_clan="エルフ", opponent_clan="ロイヤル")
+    log.set_first_player(m2, "self")
+    _play(log, m2, 2, "x")
+    log.end_match(m2, "loss")
+
+    rows = log.card_play_probability_by_turn("x", Player.OPPONENT, "ロイヤル", first_player="opponent")
+    by_turn = {t: (played, reached) for t, played, reached, _ in rows}
+    assert by_turn[2] == (1, 1)  # 相手先攻の試合は1つ
+
+    log.close()
+
+
+def test_set_first_player_does_not_overwrite(tmp_path):
+    log = MatchLog(tmp_path / "matches.db")
+    m = log.start_match(self_clan="エルフ", opponent_clan="ロイヤル")
+    log.set_first_player(m, "opponent")
+    log.set_first_player(m, "self")  # 2回目は無視される
+    row = log._conn.execute("SELECT first_player FROM matches WHERE id = ?", (m,)).fetchone()
+    assert row[0] == "opponent"
+    log.close()
