@@ -4,13 +4,39 @@ import types
 from PIL import Image
 
 from svtracker.capture.ocr_reader import (
+    _otsu_threshold,
     classify_active_player,
     count_lit_pips,
     parse_int_text,
     parse_pp_text,
     pip_is_lit,
+    preprocess_name_crop,
 )
 from svtracker.game.models import Player
+
+
+def test_otsu_threshold_separates_bimodal_histogram():
+    hist = [0] * 256
+    hist[30] = 1000  # 暗い山
+    hist[220] = 1000  # 明るい山
+    thr = _otsu_threshold(hist)
+    # 2つの山(30と220)を分離できる位置(境界は暗い山〜明るい山の間)
+    assert 30 <= thr < 220
+
+
+def test_preprocess_name_crop_outputs_binary_and_upscales():
+    # 暗い背景に明るい文字を模した小さな画像 -> 白地黒文字の二値へ、かつ拡大される
+    img = Image.new("L", (40, 12), color=20)
+    for x in range(8, 16):
+        for y in range(3, 9):
+            img.putpixel((x, y), 240)  # 文字ブロック(少数派・明色)
+    out = preprocess_name_crop(img, target_height=120)
+    assert out.size[1] >= 120  # 拡大されている
+    colors = {c for _, c in out.getcolors()}
+    assert colors <= {0, 255}  # 二値
+    # 文字(少数派)が黒(0)、背景が白(255)。黒ピクセルは少数派のはず。
+    black = dict((c, n) for n, c in out.getcolors()).get(0, 0)
+    assert 0 < black < out.width * out.height / 2
 
 
 def test_parse_int_text_extracts_first_number():
