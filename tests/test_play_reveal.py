@@ -32,6 +32,9 @@ def monitor_app(tmp_path: Path) -> MonitorApp:
     settings.card_db_path = tmp_path / "data" / "cards" / "card_db.json"
     settings.match_db_path = tmp_path / "data" / "matches" / "m.db"
     settings.regions_path = tmp_path / "regions.json"
+    # 既存テストは1呼び出し=1認識の意味で書かれているため、確認フレーム数は1にする
+    # (時間的確認そのものは専用テストで検証する)。
+    settings.reveal_confirm_frames = 1
 
     db = CardDatabase()
     for seed, (card_id, name, clan) in enumerate(
@@ -103,3 +106,23 @@ def test_reveal_defaults_to_opponent_when_active_player_unknown(monitor_app):
     actions = monitor_app._detect_play_reveals(_frame_with(2), turn=3)
     assert len(actions) == 1
     assert actions[0].player == Player.OPPONENT
+
+
+def test_reveal_requires_consecutive_frames_to_confirm(monitor_app):
+    # 確認フレーム数2: 同じカードが2フレーム連続で最有力になって初めて記録する。
+    monitor_app.settings.reveal_confirm_frames = 2
+    frame = _frame_with(2)
+    # 1フレーム目は保留(記録しない)
+    assert monitor_app._detect_play_reveals(frame, turn=3) == []
+    # 2フレーム目で確定
+    actions = monitor_app._detect_play_reveals(frame, turn=3)
+    assert len(actions) == 1
+    assert actions[0].card_id == "c1"
+
+
+def test_reveal_rejects_single_frame_flicker(monitor_app):
+    # 別カードが1フレームずつ交互に最有力になっても、連続確認が途切れるので記録しない。
+    monitor_app.settings.reveal_confirm_frames = 2
+    assert monitor_app._detect_play_reveals(_frame_with(2), turn=3) == []
+    assert monitor_app._detect_play_reveals(_frame_with(3), turn=3) == []
+    assert monitor_app._detect_play_reveals(_frame_with(2), turn=3) == []
