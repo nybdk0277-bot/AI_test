@@ -85,6 +85,12 @@ class MonitorApp:
         # プレイ表示(プレイ時に画面中央へ出る完全なカード)の直前の認識結果。
         # 同じカードが表示され続けている間に重複記録しないためのもの。
         self._last_reveal: dict[str, Optional[str]] = {}
+        # プレイ表示の時間的安定を測るための「連続で最有力だったカードと回数」。
+        # ゆるい閾値でも、規定フレーム連続で同じカードが最有力なら本物のプレイとみなす。
+        self._reveal_candidate_id: Optional[str] = None
+        self._reveal_candidate_frames: int = 0
+        # 診断ログを同じ候補で繰り返さないための直近ログ済みキー。
+        self._reveal_diag_last: Optional[tuple[str, int]] = None
 
     def close(self) -> None:
         self.capture.close()
@@ -202,9 +208,38 @@ class MonitorApp:
         best = candidates[0]
         if self._min_match_distance is None or best.distance < self._min_match_distance:
             self._min_match_distance = best.distance
-        if best.distance > self.matcher.max_distance:
-            # 表示が消えたらリセット(同じカードを続けてプレイした場合も拾えるように)
+
+        # 診断: 閾値を超えていても、正しいカードを捉えているかを確認できるよう最有力候補を
+        # ログに出す(同じ候補・同程度の距離での繰り返しは抑制)。ユーザーがこのログを見て
+        # 「正しいカード名が出ている」なら reveal_max_distance を上げれば実用化できる、
+        # 「デタラメ」ならpHash方式では限界、と切り分けられる。
+        diag = self.settings.reveal_diagnostic_distance
+        if diag > 0 and best.distance <= diag:
+            key = (best.card.card_id, best.distance // 5)
+            if key != self._reveal_diag_last:
+                self._reveal_diag_last = key
+                logger.info(
+                    "プレイ表示の最有力候補: %s (pHash距離=%s / 記録閾値 reveal_max_distance=%s)",
+                    best.card.name,
+                    best.distance,
+                    self.settings.reveal_max_distance,
+                )
+
+        # 記録の可否はゆるい閾値 reveal_max_distance で判定する。
+        if best.distance > self.settings.reveal_max_distance:
+            self._reveal_candidate_id = None
+            self._reveal_candidate_frames = 0
             self._last_reveal["play_reveal"] = None
+            return []
+
+        # 時間的安定の確認: 同じカードが連続で最有力になったフレーム数を数え、
+        # reveal_confirm_frames に達して初めて本物のプレイとして記録する。
+        if best.card.card_id == self._reveal_candidate_id:
+            self._reveal_candidate_frames += 1
+        else:
+            self._reveal_candidate_id = best.card.card_id
+            self._reveal_candidate_frames = 1
+        if self._reveal_candidate_frames < max(1, self.settings.reveal_confirm_frames):
             return []
 
         self._recognized_any_card = True
@@ -218,7 +253,7 @@ class MonitorApp:
                 player=player,
                 action_type=ActionType.PLAY_CARD,
                 card_id=best.card.card_id,
-                detail="プレイ表示から認識",
+                detail=f"プレイ表示から認識(距離{best.distance})",
             )
         ]
 
