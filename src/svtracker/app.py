@@ -157,66 +157,69 @@ class MonitorApp:
                     else:
                         lines.append(f"  {fname}: 候補なし(カードDBにpHash画像が無い)")
                 lines.append("")
-            for region_name in ("opponent_play_reveal", "self_play_reveal"):
-                rect = self.regions.single(region_name)
-                if rect is None:
-                    lines.append(f"[{region_name}] 未設定")
-                    continue
+            rect = self.regions.single("play_reveal")
+            if rect is None:
+                lines.append("[play_reveal] 未設定")
+            else:
                 crop = self.regions.crop(frame, rect)
-                fname = f"crop_{region_name}.png"
-                crop.save(out / fname)
+                crop.save(out / "crop_play_reveal.png")
                 results = self.matcher.match(crop, top_k=1)
                 if results:
                     best = results[0]
-                    lines.append(f"[{region_name}] {fname}: 最有力={best.card.name} 距離={best.distance}")
+                    lines.append(
+                        f"[play_reveal] crop_play_reveal.png: 最有力={best.card.name} 距離={best.distance}"
+                    )
+                    lines.append(
+                        "  ※ このcropに『プレイ中の中央の大型カード』が写っているか確認してください。"
+                        "写っていて距離が大きい場合のみ枠位置がズレています。"
+                    )
                 else:
-                    lines.append(f"[{region_name}] {fname}: 候補なし")
+                    lines.append("[play_reveal] crop_play_reveal.png: 候補なし")
                 lines.append("")
         (out / "summary.txt").write_text("\n".join(lines), encoding="utf-8")
         logger.info("認識デバッグを保存しました: %s", out)
         return out
 
     def _detect_play_reveals(self, frame, turn: int) -> list[Action]:
-        """プレイ時に画面中央へ大きく表示される「完全なカード」を照合してプレイを検出する.
+        """プレイ時に画面「中央」へ大きく表示される「完全なカード」を照合してプレイを検出する.
 
         手札は扇状に傾き、盤面は枚数で位置が変わり中央寄せされるため固定枠での照合が
         効きにくいのに対し、プレイ表示は「平面・正立・大型・固定位置」で公式カード画像と
         同じ構図なので、pHash照合が最も効く場所(実対戦動画で確認)。
-        相手= opponent_play_reveal(画面中央)、自分= self_play_reveal(手札を持ち上げた
-        ときの右側プレビュー)。同じカードが表示され続けている間は1回だけ記録する。
+        自分・相手どちらのプレイでも同じ中央位置(play_reveal)に出るので枠は1つにまとめ、
+        「今出したのが自分か相手か」は手番(active_player)で判定する。手番が不明なときは
+        相手プレイとして扱う(統計の主目的は相手のプレイ把握のため)。同じカードが表示され
+        続けている間は1回だけ記録する。
         """
-        actions: list[Action] = []
-        for region_name, player in (
-            ("opponent_play_reveal", Player.OPPONENT),
-            ("self_play_reveal", Player.SELF),
-        ):
-            rect = self.regions.single(region_name)
-            if rect is None:
-                continue
-            crop = self.regions.crop(frame, rect)
-            candidates = self.matcher.match(crop, top_k=1)
-            if not candidates:
-                continue
-            best = candidates[0]
-            if self._min_match_distance is None or best.distance < self._min_match_distance:
-                self._min_match_distance = best.distance
-            if best.distance <= self.matcher.max_distance:
-                self._recognized_any_card = True
-                if self._last_reveal.get(region_name) != best.card.card_id:
-                    self._last_reveal[region_name] = best.card.card_id
-                    actions.append(
-                        Action(
-                            turn=turn,
-                            player=player,
-                            action_type=ActionType.PLAY_CARD,
-                            card_id=best.card.card_id,
-                            detail="プレイ表示から認識",
-                        )
-                    )
-            else:
-                # 表示が消えたらリセット(同じカードを続けてプレイした場合も拾えるように)
-                self._last_reveal[region_name] = None
-        return actions
+        rect = self.regions.single("play_reveal")
+        if rect is None:
+            return []
+        crop = self.regions.crop(frame, rect)
+        candidates = self.matcher.match(crop, top_k=1)
+        if not candidates:
+            return []
+        best = candidates[0]
+        if self._min_match_distance is None or best.distance < self._min_match_distance:
+            self._min_match_distance = best.distance
+        if best.distance > self.matcher.max_distance:
+            # 表示が消えたらリセット(同じカードを続けてプレイした場合も拾えるように)
+            self._last_reveal["play_reveal"] = None
+            return []
+
+        self._recognized_any_card = True
+        if self._last_reveal.get("play_reveal") == best.card.card_id:
+            return []
+        self._last_reveal["play_reveal"] = best.card.card_id
+        player = self.tracker.state.active_player or Player.OPPONENT
+        return [
+            Action(
+                turn=turn,
+                player=player,
+                action_type=ActionType.PLAY_CARD,
+                card_id=best.card.card_id,
+                detail="プレイ表示から認識",
+            )
+        ]
 
     def _build_board_units(self, card_ids: list[Optional[str]]) -> list[BoardUnit]:
         """認識できたカードIDから盤面ユニットを組み立てる.

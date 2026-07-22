@@ -54,8 +54,7 @@ REGION_LABELS = {
     "self_sep_pips": "自分の超進化ピップ◆(紫、1個ずつ)",
     "opponent_sep_pips": "相手の超進化ピップ◆(紫、1個ずつ)",
     "opponent_pp": "相手のPP表示(画面右上のPP n/m)",
-    "opponent_play_reveal": "相手のプレイ表示(中央の大型カード)",
-    "self_play_reveal": "自分のプレイ表示(右側の大型カード)",
+    "play_reveal": "プレイ表示(中央に大きく出るカード。自分/相手は手番で判定)",
     "active_player_pixel": "手番判定ピクセル(ターン終了ボタン上推奨)",
 }
 REGION_COLORS = {
@@ -81,8 +80,7 @@ REGION_COLORS = {
     "self_crest_slots": "#ffbb33",
     "opponent_crest_slots": "#ff6633",
     "opponent_pp": "#33ffcc",
-    "opponent_play_reveal": "#ff4444",
-    "self_play_reveal": "#44ff88",
+    "play_reveal": "#ff4444",
     "self_ep_pips": "#ffdd55",
     "opponent_ep_pips": "#ffaa33",
     "self_sep_pips": "#aa66ff",
