@@ -52,11 +52,64 @@ def _ocr_digits_string(image: Image.Image) -> Optional[str]:
         return None
 
 
+def _otsu_threshold(histogram: list[int]) -> int:
+    """256ビンのヒストグラムから大津の二値化しきい値を求める."""
+    total = sum(histogram)
+    if total == 0:
+        return 127
+    sum_all = sum(i * h for i, h in enumerate(histogram))
+    w_b = 0
+    sum_b = 0.0
+    best_var = -1.0
+    threshold = 127
+    for t in range(256):
+        w_b += histogram[t]
+        if w_b == 0:
+            continue
+        w_f = total - w_b
+        if w_f == 0:
+            break
+        sum_b += t * histogram[t]
+        m_b = sum_b / w_b
+        m_f = (sum_all - sum_b) / w_f
+        between = w_b * w_f * (m_b - m_f) ** 2
+        if between > best_var:
+            best_var = between
+            threshold = t
+    return threshold
+
+
+def preprocess_name_crop(image: Image.Image, target_height: int = 150) -> Image.Image:
+    """カード名バナーをOCRしやすい「白地に黒文字」の二値画像へ整える.
+
+    装飾されたバナー上の色文字はそのままではOCRが安定しないため、グレースケール化→拡大→
+    大津の二値化を行う。元の文字が明色/暗色どちらでも、文字が黒・背景が白になるよう極性を
+    自動判定する(文字は少数派ピクセルという前提)。実機フレームで、この前処理により
+    カード名の一致度が大幅に向上することを確認済み。
+    """
+    gray = image.convert("L")
+    width, height = gray.size
+    if height > 0 and height < target_height:
+        scale = max(2, round(target_height / height))
+        gray = gray.resize((width * scale, height * scale), Image.LANCZOS)
+    hist = gray.histogram()
+    threshold = _otsu_threshold(hist)
+    # しきい値未満(暗いピクセル)が少数派なら「暗い文字/明るい背景」、多数派なら逆。
+    total = sum(hist) or 1
+    dark_ratio = sum(hist[:threshold]) / total
+    if dark_ratio <= 0.5:
+        # 暗いピクセルが文字(少数派) -> 文字を黒(0)、背景を白(255)
+        return gray.point(lambda p: 0 if p < threshold else 255)
+    # 明るいピクセルが文字(少数派) -> 明るい側を黒、暗い側を白
+    return gray.point(lambda p: 0 if p >= threshold else 255)
+
+
 def read_card_name(image: Image.Image, lang: str = "jpn") -> Optional[str]:
     """カード名(日本語テキスト)を1行として読み取る。pytesseract/本体/言語データが無ければ None.
 
     プレイ表示の上部に出るカード名バナーをOCRする用途。数字OCRと違い日本語の言語データ
     (jpn.traineddata)が必要。--psm 7 は「画像全体を1行のテキストとして扱う」指定。
+    装飾バナー上の色文字はそのままだと安定しないため、白地黒文字へ前処理してから読む。
     """
     global _warned_no_pytesseract, _warned_no_tesseract_binary, _warned_no_jpn_lang
     try:
@@ -71,7 +124,13 @@ def read_card_name(image: Image.Image, lang: str = "jpn") -> Optional[str]:
         return None
 
     try:
-        text = pytesseract.image_to_string(image, lang=lang, config="--psm 7")
+        prepared = preprocess_name_crop(image)
+    except Exception:
+        logger.exception("カード名OCRの前処理に失敗しました")
+        prepared = image
+
+    try:
+        text = pytesseract.image_to_string(prepared, lang=lang, config="--psm 7")
     except pytesseract.pytesseract.TesseractNotFoundError:
         if not _warned_no_tesseract_binary:
             logger.warning(
