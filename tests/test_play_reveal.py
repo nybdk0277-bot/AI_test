@@ -43,7 +43,7 @@ def monitor_app(tmp_path: Path) -> MonitorApp:
     db.save(settings.card_db_path)
 
     regions = RegionSet()
-    regions.set_single("opponent_play_reveal", (10, 10, 128, 180))
+    regions.set_single("play_reveal", (10, 10, 128, 180))
     regions.save(settings.regions_path)
 
     with mock.patch("svtracker.capture.screen_capture.ScreenCapture.__init__", return_value=None):
@@ -88,3 +88,18 @@ def test_reveal_detects_card_change_without_gap(monitor_app):
 
 def test_reveal_ignores_background_without_card(monitor_app):
     assert monitor_app._detect_play_reveals(_frame_with(None), turn=1) == []
+
+
+def test_reveal_attributes_to_self_when_self_is_active(monitor_app):
+    # 手番が自分なら中央のプレイ表示は自分のプレイとして記録する
+    monitor_app.tracker.state.active_player = Player.SELF
+    actions = monitor_app._detect_play_reveals(_frame_with(2), turn=3)
+    assert len(actions) == 1
+    assert actions[0].player == Player.SELF
+
+
+def test_reveal_defaults_to_opponent_when_active_player_unknown(monitor_app):
+    monitor_app.tracker.state.active_player = None
+    actions = monitor_app._detect_play_reveals(_frame_with(2), turn=3)
+    assert len(actions) == 1
+    assert actions[0].player == Player.OPPONENT

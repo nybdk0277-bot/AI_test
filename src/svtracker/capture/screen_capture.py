@@ -83,9 +83,9 @@ RECT_SINGLE_REGIONS = [
     "turn_indicator",
     "self_pp",
     "opponent_pp",
-    # プレイ時に画面へ大きく表示される「完全なカード」(プレイ検出の主経路)
-    "opponent_play_reveal",
-    "self_play_reveal",
+    # プレイ時に画面「中央」へ大きく表示される「完全なカード」(プレイ検出の主経路)。
+    # 自分・相手どちらのプレイでも同じ中央に出るため枠は1つ。手番で誰のプレイかを判定する。
+    "play_reveal",
     "self_life",
     "opponent_life",
     "self_extra_pp",
