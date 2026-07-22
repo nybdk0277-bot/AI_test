@@ -70,13 +70,14 @@ class MonitorApp:
         self._stable: dict[str, StableValue] = {
             name: StableValue(required=2)
             for name in (
-                "turn", "self_life", "opponent_life", "self_ep", "opponent_ep",
-                "self_sep", "opponent_sep", "opponent_pp",
+                "turn", "self_life", "opponent_life", "opponent_pp",
             )
         }
-        # クレスト枠は演出の重なりが数秒続くことがあるため、より長い確定時間にする
-        self._stable["self_crest"] = StableValue(required=3)
-        self._stable["opponent_crest"] = StableValue(required=3)
+        # 進化/超進化ピップ(◆)とクレスト枠は、紫/金の光やエフェクトの重なりで数秒
+        # チラつくことがあり、2フレームでは誤検出(特にターン開始直後の偽の「進化」)が
+        # 残るため、より長い3フレーム確定にする。
+        for name in ("self_ep", "opponent_ep", "self_sep", "opponent_sep", "self_crest", "opponent_crest"):
+            self._stable[name] = StableValue(required=3)
         # カード認識の診断用(一度も認識できていない場合に案内を出す)
         self._step_count = 0
         self._recognized_any_card = False
