@@ -86,6 +86,8 @@ RECT_SINGLE_REGIONS = [
     # プレイ時に画面「中央」へ大きく表示される「完全なカード」(プレイ検出の主経路)。
     # 自分・相手どちらのプレイでも同じ中央に出るため枠は1つ。手番で誰のプレイかを判定する。
     "play_reveal",
+    # プレイ表示上部のカード名バナー。OCRしてDB名と照合する(検出の主経路)。
+    "play_reveal_name",
     "self_life",
     "opponent_life",
     "self_extra_pp",

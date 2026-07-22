@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 _warned_no_pytesseract = False
 _warned_no_tesseract_binary = False
+_warned_no_jpn_lang = False
 
 
 def _ocr_digits_string(image: Image.Image) -> Optional[str]:
@@ -49,6 +50,50 @@ def _ocr_digits_string(image: Image.Image) -> Optional[str]:
     except Exception:
         logger.exception("OCR読み取りに失敗しました")
         return None
+
+
+def read_card_name(image: Image.Image, lang: str = "jpn") -> Optional[str]:
+    """カード名(日本語テキスト)を1行として読み取る。pytesseract/本体/言語データが無ければ None.
+
+    プレイ表示の上部に出るカード名バナーをOCRする用途。数字OCRと違い日本語の言語データ
+    (jpn.traineddata)が必要。--psm 7 は「画像全体を1行のテキストとして扱う」指定。
+    """
+    global _warned_no_pytesseract, _warned_no_tesseract_binary, _warned_no_jpn_lang
+    try:
+        import pytesseract
+    except ImportError:
+        if not _warned_no_pytesseract:
+            logger.warning(
+                "pytesseract が見つかりません。`pip install -e \".[ocr]\"` と "
+                "Tesseract本体+日本語データ(jpn)のインストールが必要です。カード名OCRは無効になります。"
+            )
+            _warned_no_pytesseract = True
+        return None
+
+    try:
+        text = pytesseract.image_to_string(image, lang=lang, config="--psm 7")
+    except pytesseract.pytesseract.TesseractNotFoundError:
+        if not _warned_no_tesseract_binary:
+            logger.warning(
+                "Tesseract本体が見つかりません。インストールしてPATHを通してください。カード名OCRは無効になります。"
+            )
+            _warned_no_tesseract_binary = True
+        return None
+    except Exception as exc:  # 言語データ未導入(jpn.traineddata が無い)等
+        if "jpn" in str(exc).lower() or "language" in str(exc).lower() or "traineddata" in str(exc).lower():
+            if not _warned_no_jpn_lang:
+                logger.warning(
+                    "Tesseractの日本語データ(jpn.traineddata)が見つかりません。Tesseractインストール時に"
+                    "日本語(Japanese)を追加するか、tessdataにjpn.traineddataを配置してください。"
+                    "カード名OCRは無効になります。"
+                )
+                _warned_no_jpn_lang = True
+            return None
+        logger.exception("カード名OCRに失敗しました")
+        return None
+
+    text = text.strip()
+    return text or None
 
 
 def parse_int_text(text: Optional[str]) -> Optional[int]:
