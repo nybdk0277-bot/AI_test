@@ -8,6 +8,7 @@ from typing import Callable, Optional
 from svtracker.cards.card_database import CardDatabase
 from svtracker.cards.card_matcher import CardMatcher
 from svtracker.cards.models import Card
+from svtracker.cards.name_matcher import NameMatcher
 from svtracker.capture import ocr_reader
 from svtracker.capture.screen_capture import RegionSet, ScreenCapture
 from svtracker.capture.stability import StableValue
@@ -49,6 +50,7 @@ class MonitorApp:
         self.matcher = CardMatcher(
             self.database, hash_size=settings.hash_size, max_distance=settings.match_max_distance
         )
+        self.name_matcher = NameMatcher(self.database)
         self.regions = RegionSet.load(settings.regions_path) if settings.regions_path.exists() else None
         self.capture = ScreenCapture(
             monitor_index=settings.monitor_index, window_title_hint=settings.window_title_hint
@@ -94,6 +96,10 @@ class MonitorApp:
         self._reveal_candidate_frames: int = 0
         # 診断ログを同じ候補で繰り返さないための直近ログ済みキー。
         self._reveal_diag_last: Optional[tuple[str, int]] = None
+        # 名前OCR経路の時間的確認用(連続で同じカードに一致した回数)と診断ログ抑制。
+        self._reveal_name_candidate_id: Optional[str] = None
+        self._reveal_name_candidate_frames: int = 0
+        self._reveal_name_diag_last: Optional[str] = None
 
     def close(self) -> None:
         self.capture.close()
@@ -186,20 +192,114 @@ class MonitorApp:
                 else:
                     lines.append("[play_reveal] crop_play_reveal.png: 候補なし")
                 lines.append("")
+
+            name_rect = self.regions.single("play_reveal_name")
+            if name_rect is None:
+                lines.append("[play_reveal_name] 未設定(カード名OCRの枠。プリセット自動適用で入ります)")
+            else:
+                name_crop = self.regions.crop(frame, name_rect)
+                name_crop.save(out / "crop_play_reveal_name.png")
+                raw = ocr_reader.read_card_name(name_crop)
+                if raw:
+                    matched = self.name_matcher.match(raw, min_ratio=self.settings.reveal_name_min_ratio)
+                    if matched is not None:
+                        lines.append(
+                            f"[play_reveal_name] OCR='{raw}' → {matched[0].name} (一致度={matched[1]:.2f})"
+                        )
+                    else:
+                        lines.append(f"[play_reveal_name] OCR='{raw}' → 一致なし")
+                else:
+                    lines.append(
+                        "[play_reveal_name] OCR結果なし(Tesseract本体+日本語データ jpn が必要。"
+                        "crop_play_reveal_name.png にカード名がくっきり写っているか確認)"
+                    )
+                lines.append("")
         (out / "summary.txt").write_text("\n".join(lines), encoding="utf-8")
         logger.info("認識デバッグを保存しました: %s", out)
         return out
 
     def _detect_play_reveals(self, frame, turn: int) -> list[Action]:
-        """プレイ時に画面「中央」へ大きく表示される「完全なカード」を照合してプレイを検出する.
+        """プレイ表示(中央の大型カード)からプレイを検出する.
 
-        手札は扇状に傾き、盤面は枚数で位置が変わり中央寄せされるため固定枠での照合が
-        効きにくいのに対し、プレイ表示は「平面・正立・大型・固定位置」で公式カード画像と
-        同じ構図なので、pHash照合が最も効く場所(実対戦動画で確認)。
+        主経路は「カード名バナーのOCR→DB名照合」(reveal_use_name_ocr)。ゲーム内の
+        カード描画は光・アニメ絵・エフェクトで公式静止画とpHash距離が大きく、絵柄照合は
+        実機で実用にならなかったため、明瞭な文字であるカード名を読む方式を既定にする。
+        名前OCRが使えない(枠未設定/Tesseract未導入/一致せず)ときは、従来のpHash経路
+        (ゆるい閾値 reveal_max_distance)にフォールバックする。
+        """
+        if self.settings.reveal_use_name_ocr:
+            name_actions = self._detect_play_reveal_by_name(frame, turn)
+            if name_actions:
+                return name_actions
+        return self._detect_play_reveal_by_phash(frame, turn)
+
+    def _detect_play_reveal_by_name(self, frame, turn: int) -> list[Action]:
+        """プレイ表示のカード名バナーをOCRし、DB名とあいまい照合してプレイを検出する.
+
+        同じカードが reveal_confirm_frames 連続で最有力になって初めて記録する(表示は
+        数フレーム出続けるため時間的に安定。単発の誤読を弾く)。自分/相手は手番で判定。
+        """
+        rect = self.regions.single("play_reveal_name")
+        if rect is None:
+            return []
+        crop = self.regions.crop(frame, rect)
+        raw = ocr_reader.read_card_name(crop)
+        if not raw:
+            self._reveal_name_candidate_id = None
+            self._reveal_name_candidate_frames = 0
+            return []
+        matched = self.name_matcher.match(raw, min_ratio=self.settings.reveal_name_min_ratio)
+
+        # 診断ログ: 読めた生テキストと照合結果(同じ生テキストの繰り返しは抑制)。
+        if raw != self._reveal_name_diag_last:
+            self._reveal_name_diag_last = raw
+            if matched is not None:
+                logger.info(
+                    "プレイ表示の名前OCR: '%s' → %s (一致度=%.2f)", raw, matched[0].name, matched[1]
+                )
+            else:
+                logger.info(
+                    "プレイ表示の名前OCR: '%s' → 一致なし(min_ratio=%.2f 未満)",
+                    raw,
+                    self.settings.reveal_name_min_ratio,
+                )
+
+        if matched is None:
+            self._reveal_name_candidate_id = None
+            self._reveal_name_candidate_frames = 0
+            self._last_reveal["play_reveal_name"] = None
+            return []
+
+        card = matched[0]
+        if card.card_id == self._reveal_name_candidate_id:
+            self._reveal_name_candidate_frames += 1
+        else:
+            self._reveal_name_candidate_id = card.card_id
+            self._reveal_name_candidate_frames = 1
+        if self._reveal_name_candidate_frames < max(1, self.settings.reveal_confirm_frames):
+            return []
+
+        self._recognized_any_card = True
+        if self._last_reveal.get("play_reveal_name") == card.card_id:
+            return []
+        self._last_reveal["play_reveal_name"] = card.card_id
+        player = self.tracker.state.active_player or Player.OPPONENT
+        return [
+            Action(
+                turn=turn,
+                player=player,
+                action_type=ActionType.PLAY_CARD,
+                card_id=card.card_id,
+                detail=f"プレイ表示の名前OCRから認識(一致度{matched[1]:.2f})",
+            )
+        ]
+
+    def _detect_play_reveal_by_phash(self, frame, turn: int) -> list[Action]:
+        """プレイ表示の絵柄をpHash照合してプレイを検出する(名前OCRのフォールバック).
+
         自分・相手どちらのプレイでも同じ中央位置(play_reveal)に出るので枠は1つにまとめ、
         「今出したのが自分か相手か」は手番(active_player)で判定する。手番が不明なときは
-        相手プレイとして扱う(統計の主目的は相手のプレイ把握のため)。同じカードが表示され
-        続けている間は1回だけ記録する。
+        相手プレイとして扱う。同じカードが表示され続けている間は1回だけ記録する。
         """
         rect = self.regions.single("play_reveal")
         if rect is None:

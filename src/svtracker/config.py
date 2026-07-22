@@ -63,6 +63,11 @@ class Settings:
     # 連続で最有力」という条件(reveal_confirm_frames)と併用すれば誤検出を抑えられる。
     reveal_max_distance: int = 40
     reveal_confirm_frames: int = 2  # プレイ表示をこのフレーム数連続で確認したら記録
+    # プレイ表示の「カード名」をOCRしてDB名と照合する主経路(pHash絵柄照合は実機で
+    # 実用にならなかったため、名前OCRを既定の検出手段にする)。日本語OCR(Tesseract+jpn)
+    # が必要。play_reveal_name 枠をキャリブレーションし、読めた名前を下記の類似度で照合する。
+    reveal_use_name_ocr: bool = True
+    reveal_name_min_ratio: float = 0.6  # 名前の類似度がこれ以上なら同一カードとみなす
     # プレイ表示の最有力候補をログに出す診断用の上限距離。閾値を超えていても、この距離
     # 未満なら「候補=カード名(距離)」をログ出力し、実際に正しいカードを捉えているかを
     # ユーザーが確認できるようにする(0以下で無効)。

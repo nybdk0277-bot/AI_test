@@ -126,3 +126,39 @@ def test_reveal_rejects_single_frame_flicker(monitor_app):
     assert monitor_app._detect_play_reveals(_frame_with(2), turn=3) == []
     assert monitor_app._detect_play_reveals(_frame_with(3), turn=3) == []
     assert monitor_app._detect_play_reveals(_frame_with(2), turn=3) == []
+
+
+def test_reveal_name_ocr_path_records_play(monitor_app):
+    # 名前OCR経路: カード名バナーをOCRしてDB名に一致すればプレイとして記録する。
+    monitor_app.settings.reveal_confirm_frames = 1
+    monitor_app.regions.set_single("play_reveal_name", (10, 10, 100, 30))
+    monitor_app.tracker.state.active_player = Player.OPPONENT
+    frame = _frame_with(2)
+    with mock.patch("svtracker.capture.ocr_reader.read_card_name", return_value="カード1"):
+        actions = monitor_app._detect_play_reveals(frame, turn=5)
+    assert len(actions) == 1
+    assert actions[0].card_id == "c1"
+    assert actions[0].player == Player.OPPONENT
+    assert "名前OCR" in actions[0].detail
+
+
+def test_reveal_name_ocr_tolerates_minor_ocr_error(monitor_app):
+    monitor_app.settings.reveal_confirm_frames = 1
+    monitor_app.regions.set_single("play_reveal_name", (10, 10, 100, 30))
+    frame = _frame_with(2)
+    # 「カード1」を「カ一ド1」(長音誤読)と読んでも一致する
+    with mock.patch("svtracker.capture.ocr_reader.read_card_name", return_value="カ一ド1"):
+        actions = monitor_app._detect_play_reveals(frame, turn=5)
+    assert len(actions) == 1
+    assert actions[0].card_id == "c1"
+
+
+def test_reveal_name_ocr_falls_back_to_phash_when_unavailable(monitor_app):
+    # OCRが使えない(None)ときは従来のpHash経路にフォールバックする。
+    monitor_app.settings.reveal_confirm_frames = 1
+    monitor_app.regions.set_single("play_reveal_name", (10, 10, 100, 30))
+    frame = _frame_with(2)
+    with mock.patch("svtracker.capture.ocr_reader.read_card_name", return_value=None):
+        actions = monitor_app._detect_play_reveals(frame, turn=5)
+    assert len(actions) == 1
+    assert actions[0].card_id == "c1"  # pHashで一致
