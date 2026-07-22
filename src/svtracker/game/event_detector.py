@@ -163,10 +163,19 @@ class EventDetector:
     def _detect_life_change(
         self, turn: int, player: Player, observed_life: Optional[int], prev_attr: str
     ) -> list[Action]:
-        """ライフの増減(被ダメージ/回復)を検出する。最初の観測時は基準値が無いため比較しない."""
+        """ライフの増減(被ダメージ/回復)を検出する。最初の観測時は基準値が無いため比較しない.
+
+        OCRの桁落ち(例: 20→2, 15→1 のように新値が旧値のちょうど1/10)は誤読の典型で、
+        実機でも対戦開始直後に「20」を「2」と読み「-18」という偽のライフ変化が出た。
+        新値が旧値の1/10(かつ旧値が2桁)ならOCRノイズとみなし、イベントを出さず基準値も
+        更新しない(直前の妥当値に留める)ことで、桁落ちが続いても偽イベントを出さない。
+        """
         actions: list[Action] = []
         prev_life = getattr(self, prev_attr)
         if observed_life is not None and prev_life is not None and observed_life != prev_life:
+            if prev_life >= 10 and observed_life == prev_life // 10:
+                # 桁落み誤読とみなして無視(基準値も更新しない)
+                return []
             delta = observed_life - prev_life
             actions.append(
                 Action(

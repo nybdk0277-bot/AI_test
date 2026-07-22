@@ -229,6 +229,26 @@ def test_event_detector_ignores_life_change_on_first_observation():
     assert actions == []
 
 
+def test_event_detector_ignores_life_ocr_digit_drop():
+    # 20→2 のような桁落ちOCR誤読は無視し、基準値も20のまま維持する。
+    detector = EventDetector()
+    detector.update(turn=1, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[], self_life=20)
+    # 桁落ち(20→2)は偽イベントを出さない
+    assert detector.update(
+        turn=1, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[], self_life=2
+    ) == []
+    # 基準値が2に更新されていないので、次に正しく20を読んでも変化イベントは出ない
+    assert detector.update(
+        turn=1, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[], self_life=20
+    ) == []
+    # 妥当な減少(20→17)は従来どおり検出する
+    actions = detector.update(
+        turn=2, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[], self_life=17
+    )
+    assert len(actions) == 1
+    assert actions[0].action_type == ActionType.LIFE_CHANGE
+
+
 def test_event_detector_detects_end_turn_when_turn_changes():
     detector = EventDetector()
     detector.update(
