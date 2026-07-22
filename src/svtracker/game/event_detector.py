@@ -11,6 +11,14 @@ from typing import Optional
 
 from svtracker.game.models import Action, ActionType, Player
 
+# 進化・超進化はゲームルール上、序盤のターンでは発生し得ない。進化ポイント(EP)/
+# 超進化ポイント(SEP)のピクセル読み取りは画面演出(紫/金の光・エフェクト)でチラつき
+# やすく、対戦開始直後(ターン1)に「進化した」「超進化した」と誤検出する事例が実機ログで
+# 確認された。実際に進化が可能になるのはおおよそ中盤以降のため、それより早いターンの
+# 減少検知はOCR/ピクセルのノイズとみなして無視する(下限ターン)。
+EVOLVE_MIN_TURN = 4
+SUPER_EVOLVE_MIN_TURN = 5
+
 
 class EventDetector:
     def __init__(self) -> None:
@@ -82,17 +90,28 @@ class EventDetector:
             )
 
         actions.extend(
-            self._detect_point_drop(turn, Player.SELF, self_ep, "_prev_self_ep", ActionType.EVOLVE)
-        )
-        actions.extend(
-            self._detect_point_drop(turn, Player.OPPONENT, opponent_ep, "_prev_opponent_ep", ActionType.EVOLVE)
-        )
-        actions.extend(
-            self._detect_point_drop(turn, Player.SELF, self_sep, "_prev_self_sep", ActionType.SUPER_EVOLVE)
+            self._detect_point_drop(
+                turn, Player.SELF, self_ep, "_prev_self_ep", ActionType.EVOLVE, EVOLVE_MIN_TURN
+            )
         )
         actions.extend(
             self._detect_point_drop(
-                turn, Player.OPPONENT, opponent_sep, "_prev_opponent_sep", ActionType.SUPER_EVOLVE
+                turn, Player.OPPONENT, opponent_ep, "_prev_opponent_ep", ActionType.EVOLVE, EVOLVE_MIN_TURN
+            )
+        )
+        actions.extend(
+            self._detect_point_drop(
+                turn, Player.SELF, self_sep, "_prev_self_sep", ActionType.SUPER_EVOLVE, SUPER_EVOLVE_MIN_TURN
+            )
+        )
+        actions.extend(
+            self._detect_point_drop(
+                turn,
+                Player.OPPONENT,
+                opponent_sep,
+                "_prev_opponent_sep",
+                ActionType.SUPER_EVOLVE,
+                SUPER_EVOLVE_MIN_TURN,
             )
         )
         actions.extend(self._detect_life_change(turn, Player.SELF, self_life, "_prev_self_life"))
@@ -111,7 +130,13 @@ class EventDetector:
         return actions
 
     def _detect_point_drop(
-        self, turn: int, player: Player, observed: Optional[int], prev_attr: str, action_type: ActionType
+        self,
+        turn: int,
+        player: Player,
+        observed: Optional[int],
+        prev_attr: str,
+        action_type: ActionType,
+        min_turn: int = 0,
     ) -> list[Action]:
         """ポイント表示の減少を検出してアクションにする.
 
@@ -122,10 +147,14 @@ class EventDetector:
 
         観測できていない(None)フレームやポイント増加(ターン開始時の付与)は無視する。
         最初の観測時は基準値が無いため比較せず、次回以降の減少検知の基準にするだけ。
+
+        min_turn より前のターンでの減少は、ゲームルール上あり得ない進化/超進化であり
+        ピクセル読み取りのノイズとみなして無視する(基準値の更新だけは行い、以降の
+        正しい減少検知に備える)。
         """
         actions: list[Action] = []
         prev = getattr(self, prev_attr)
-        if observed is not None and prev is not None and observed < prev:
+        if observed is not None and prev is not None and observed < prev and turn >= min_turn:
             actions.append(Action(turn=turn, player=player, action_type=action_type))
         if observed is not None:
             setattr(self, prev_attr, observed)

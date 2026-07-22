@@ -149,6 +149,31 @@ def test_event_detector_detects_evolve_and_super_evolve_independently():
     assert all(a.player == Player.SELF for a in actions)
 
 
+def test_event_detector_suppresses_early_turn_evolve_noise():
+    # ターン1で進化/超進化は起こり得ない。ピップのチラつきによる序盤の減少は無視する。
+    detector = EventDetector()
+    detector.update(
+        turn=1, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[], self_ep=2, opponent_sep=1
+    )
+    actions = detector.update(
+        turn=1, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[], self_ep=1, opponent_sep=0
+    )
+    assert actions == []
+
+
+def test_event_detector_super_evolve_needs_later_turn_than_evolve():
+    # ターン4は進化は可能だが超進化はまだ不可(SEPの減少は無視する)。
+    detector = EventDetector()
+    detector.update(
+        turn=4, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[], self_ep=2, self_sep=1
+    )
+    actions = detector.update(
+        turn=4, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[], self_ep=1, self_sep=0
+    )
+    types = {a.action_type for a in actions}
+    assert types == {ActionType.EVOLVE}
+
+
 def test_event_detector_ignores_ep_increase_and_missing_observations():
     detector = EventDetector()
     detector.update(turn=1, self_hand_ids=[], self_board_ids=[], opponent_board_ids=[], self_ep=0, opponent_ep=0)
