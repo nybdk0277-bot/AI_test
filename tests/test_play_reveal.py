@@ -162,3 +162,31 @@ def test_reveal_name_ocr_falls_back_to_phash_when_unavailable(monitor_app):
         actions = monitor_app._detect_play_reveals(frame, turn=5)
     assert len(actions) == 1
     assert actions[0].card_id == "c1"  # pHashで一致
+
+
+def test_reveal_name_ocr_requires_two_consecutive_frames(monitor_app):
+    # 名前OCR経路も確認フレーム数2なら、同じカードが連続2回一致して初めて記録する。
+    monitor_app.settings.reveal_confirm_frames = 2
+    monitor_app.regions.set_single("play_reveal_name", (10, 10, 100, 30))
+    frame = _frame_with(2)
+    with mock.patch("svtracker.capture.ocr_reader.read_card_name", return_value="カード1"):
+        assert monitor_app._detect_play_reveals(frame, turn=5) == []  # 1回目は保留
+        actions = monitor_app._detect_play_reveals(frame, turn=5)  # 2回目で確定
+    assert len(actions) == 1
+    assert actions[0].card_id == "c1"
+
+
+def test_reveal_name_ocr_single_frame_garbage_not_recorded(monitor_app):
+    # 何も出ていない時に別カードへ1フレームずつ偶然一致しても、連続が途切れて記録しない。
+    monitor_app.settings.reveal_confirm_frames = 2
+    monitor_app.regions.set_single("play_reveal_name", (10, 10, 100, 30))
+    # 背景フレーム(カード無し)なので、名前OCRが偶然一致してもpHashフォールバックは効かない
+    frame = _frame_with(None)
+    c1 = monitor_app.database.get("c1")
+    c2 = monitor_app.database.get("c2")
+    # 1フレームごとに別カードへ一致(偶然一致を模擬)。連続が途切れるので記録されない。
+    seq = iter([(c1, 0.9, "カード1"), (c2, 0.9, "カード2"), (c1, 0.9, "カード1")])
+    with mock.patch.object(monitor_app, "_read_reveal_name", side_effect=lambda *a, **k: next(seq)):
+        assert monitor_app._detect_play_reveals(frame, turn=5) == []
+        assert monitor_app._detect_play_reveals(frame, turn=5) == []
+        assert monitor_app._detect_play_reveals(frame, turn=5) == []
