@@ -83,9 +83,7 @@ class MonitorApp:
         self._reveal_candidate_frames: int = 0
         # 診断ログを同じ候補で繰り返さないための直近ログ済みキー。
         self._reveal_diag_last: Optional[tuple[str, int]] = None
-        # 名前OCR経路の時間的確認用(連続で同じカードに一致した回数)と診断ログ抑制。
-        self._reveal_name_candidate_id: Optional[str] = None
-        self._reveal_name_candidate_frames: int = 0
+        # 名前OCR経路の診断ログ抑制(同じ生テキストの繰り返しを出さない)。
         self._reveal_name_diag_last: Optional[str] = None
 
     def close(self) -> None:
@@ -255,15 +253,17 @@ class MonitorApp:
     def _detect_play_reveal_by_name(self, frame, turn: int) -> list[Action]:
         """プレイ表示のカード名バナーをOCRし、DB名とあいまい照合してプレイを検出する.
 
-        同じカードが reveal_confirm_frames 連続で最有力になって初めて記録する(表示は
-        数フレーム出続けるため時間的に安定。単発の誤読を弾く)。自分/相手は手番で判定。
+        一致度が閾値(reveal_name_min_ratio)以上なら1フレームで即記録する。実対戦動画で
+        本物のプレイ表示は一致度0.6超・非表示時は0.6未満と明確に分離しており、帯スライド
+        OCRの処理時間で連続フレーム確認が成立しづらい(表示中に2回読めないことがある)ため、
+        連続確認は課さない。同じカードが表示され続けている間の重複記録は _last_reveal で防ぐ。
+        自分/相手は手番で判定。
         """
         if self.regions.single("play_reveal_name") is None:
             return []
         best_card, best_ratio, raw = self._read_reveal_name(frame)
         if raw is None:
-            self._reveal_name_candidate_id = None
-            self._reveal_name_candidate_frames = 0
+            self._last_reveal["play_reveal_name"] = None
             return []
         matched_ok = best_card is not None and best_ratio >= self.settings.reveal_name_min_ratio
 
@@ -286,20 +286,10 @@ class MonitorApp:
                 )
 
         if not matched_ok:
-            self._reveal_name_candidate_id = None
-            self._reveal_name_candidate_frames = 0
             self._last_reveal["play_reveal_name"] = None
             return []
 
         card = best_card
-        if card.card_id == self._reveal_name_candidate_id:
-            self._reveal_name_candidate_frames += 1
-        else:
-            self._reveal_name_candidate_id = card.card_id
-            self._reveal_name_candidate_frames = 1
-        if self._reveal_name_candidate_frames < max(1, self.settings.reveal_confirm_frames):
-            return []
-
         self._recognized_any_card = True
         if self._last_reveal.get("play_reveal_name") == card.card_id:
             return []
@@ -537,8 +527,17 @@ class MonitorApp:
             if self.match_log is not None and self.match_id is not None and not is_token_play:
                 self.match_log.log_action(self.match_id, action)
             label = "を生成(トークン)" if is_token_play else "をプレイ"
+            # 記録された文脈(ターン/PP)をそのままログに出し、統計に紐づく情報を確認できるようにする
+            pp_note = ""
+            if self.tracker.state.opponent_max_pp > 0:
+                pp_note = f" / 相手PP {self.tracker.state.opponent_pp}/{self.tracker.state.opponent_max_pp}"
             logger.info(
-                "[turn %s] %s が %s%s", action.turn, action.player.value, action.card_name or action.card_id, label
+                "[turn %s] %s が %s%s%s",
+                action.turn,
+                action.player.value,
+                action.card_name or action.card_id,
+                label,
+                pp_note,
             )
 
     def run_forever(self, on_finish: Optional[Callable[[], str]] = None) -> None:

@@ -45,6 +45,20 @@ def test_ocr_with_minor_error_matches_closest():
     assert result[0].card_id == "4"
 
 
+def test_short_token_name_does_not_match_longer_card():
+    # DBに無い短い名前(トークン「フェアリー」)を読んだとき、前方一致する長い別カード
+    # (フェアリーテイマー)へ誤マッチしない(カバレッジガード)。実機で誤記録を確認した事例。
+    db = CardDatabase()
+    db.add(Card(card_id="t1", name="フェアリーテイマー", clan="エルフ", cost=3, card_type="フォロワー"))
+    matcher = NameMatcher(db)
+    assert matcher.match("フェアリー") is None
+    assert matcher.match("| フェアリー") is None
+    # 名前全体をほぼ読めていれば通常どおり一致する
+    result = matcher.match("フェアリーテイマ")
+    assert result is not None
+    assert result[0].card_id == "t1"
+
+
 def test_unrelated_text_below_threshold_returns_none():
     matcher = NameMatcher(_db())
     assert matcher.match("まったく無関係な文字列xyz", min_ratio=0.6) is None
