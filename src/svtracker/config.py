@@ -77,11 +77,14 @@ class Settings:
     # ユーザーが確認できるようにする(0以下で無効)。
     reveal_diagnostic_distance: int = 100
 
-    # 手番判定用の基準色(RGB)。config/regions.json の active_player_pixel の座標を
-    # 自分/相手の手番それぞれでスポイトした実際の色に置き換えること。ここではダミー値。
-    self_turn_color: tuple[int, int, int] = (255, 215, 0)
-    opponent_turn_color: tuple[int, int, int] = (200, 30, 30)
-    active_player_color_max_distance: float = 60.0
+    # 手番判定用の基準色(RGB)。画面右のターンボタンは、自分の手番は青い「ターン終了」、
+    # 相手の手番は赤い「ENEMY TURN」になる。active_player_pixel([1740,470]=ボタン中央)の
+    # 色をこの2色と比べて手番を判定する。既定値は実対戦動画のボタン中央から実測した値
+    # (自分=青、相手=赤)。以前の既定(金(255,215,0))は実際のボタン色と違い、自分の手番を
+    # 判定できず自分のプレイが相手に誤帰属していた。色が合わない場合はスポイトで実測して調整。
+    self_turn_color: tuple[int, int, int] = (14, 126, 233)
+    opponent_turn_color: tuple[int, int, int] = (184, 99, 98)
+    active_player_color_max_distance: float = 70.0
 
     # 公式サイト (カード取得元)。内部API (/web/CardList/cardList) を利用する。
     official_site_base: str = "https://shadowverse-wb.com"
