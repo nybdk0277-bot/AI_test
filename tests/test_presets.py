@@ -8,7 +8,7 @@ from svtracker.capture.presets import (
 def test_preset_at_base_resolution_matches_base_coordinates():
     rs = preset_region_set(PRESET_BASE_WIDTH, PRESET_BASE_HEIGHT)
     # 基準解像度ではスケール1.0なので座標がそのまま入る
-    assert rs.single("self_pp") == (1660, 630, 210, 55)
+    assert rs.single("self_pp") == (1732, 635, 118, 46)
     assert rs.point("active_player_pixel") == (1740, 470)
     ep_pips = rs.slots("self_ep_pips")
     assert ep_pips[0] == (810, 784, 20, 22)
@@ -17,7 +17,7 @@ def test_preset_at_base_resolution_matches_base_coordinates():
 def test_preset_scales_to_half_resolution():
     rs = preset_region_set(PRESET_BASE_WIDTH // 2, PRESET_BASE_HEIGHT // 2)
     x, y, w, h = rs.single("self_pp")
-    assert (x, y, w, h) == (830, 315, 105, 28)
+    assert (x, y, w, h) == (866, 318, 59, 23)
     px, py = rs.point("active_player_pixel")
     assert (px, py) == (870, 235)
 

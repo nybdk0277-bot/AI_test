@@ -34,9 +34,15 @@ def _ocr_digits_string(image: Image.Image) -> Optional[str]:
             _warned_no_pytesseract = True
         return None
 
+    # 数字も装飾フォント(白抜き等)なので、カード名と同じ白地黒文字化の前処理を通す。
+    # 前処理なしだとPP「3 /9」等がまったく読めないことを実機フレームで確認した。
+    try:
+        prepared = preprocess_name_crop(image)
+    except Exception:
+        prepared = image
     config = "--psm 7 -c tessedit_char_whitelist=0123456789/"
     try:
-        return pytesseract.image_to_string(image, config=config)
+        return pytesseract.image_to_string(prepared, config=config)
     except pytesseract.pytesseract.TesseractNotFoundError:
         # pytesseract本体(パッケージ)はあるが、Tesseractの実行ファイルが未インストール/
         # PATH未設定。毎フレーム発生しうるため、_warned_no_pytesseract と同様に一度だけ警告する。
@@ -173,6 +179,22 @@ def parse_pp_text(text: Optional[str]) -> Optional[tuple[int, int]]:
     if not match:
         return None
     return int(match.group(1)), int(match.group(2))
+
+
+def parse_pp_max_text(text: Optional[str]) -> Optional[int]:
+    """PP表記から「最大PP」だけを取り出す(先頭の現在PPが読めなくても最大が拾える).
+
+    ターン数の推定には最大PPだけあれば足りる。装飾数字のOCRでは先頭1桁が落ちて
+    "/8" だけ読めることがあるため、スラッシュ直後の数字を最大PPとして拾う。
+    "/" が無く1桁だけのときは、それを最大PPとみなす(現在=最大の可能性が高い場面向け)。
+    """
+    if not text:
+        return None
+    match = re.search(r"/\s*(\d+)", text)
+    if match:
+        return int(match.group(1))
+    fallback = re.search(r"\d+", text)
+    return int(fallback.group()) if fallback else None
 
 
 def read_turn_number(image: Image.Image) -> Optional[int]:
