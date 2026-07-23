@@ -8,6 +8,7 @@ from svtracker.capture.ocr_reader import (
     classify_active_player,
     count_lit_pips,
     parse_int_text,
+    parse_pp_max_text,
     parse_pp_text,
     pip_is_lit,
     preprocess_name_crop,
@@ -52,6 +53,18 @@ def test_parse_pp_text_extracts_current_and_max():
     assert parse_pp_text(" 10 / 10 ") == (10, 10)
     assert parse_pp_text("garbage") is None
     assert parse_pp_text(None) is None
+
+
+def test_parse_pp_max_text_recovers_max_from_partial_reads():
+    # 完全な "n/m" が読めた場合はその最大
+    assert parse_pp_max_text("3/9") == 9
+    # 先頭桁が落ちて "/m" だけ読めた場合も最大を拾う
+    assert parse_pp_max_text("/8") == 8
+    assert parse_pp_max_text(" / 10 ") == 10
+    # スラッシュが無く1桁だけなら、それを最大とみなす
+    assert parse_pp_max_text("7") == 7
+    assert parse_pp_max_text("") is None
+    assert parse_pp_max_text(None) is None
 
 
 def test_classify_active_player_picks_closest_reference_color():

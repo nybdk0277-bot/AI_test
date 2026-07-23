@@ -67,7 +67,7 @@ class MonitorApp:
         self._stable: dict[str, StableValue] = {
             name: StableValue(required=2)
             for name in (
-                "turn", "opponent_pp",
+                "turn", "opponent_pp", "opponent_max_pp",
             )
         }
         # カード認識の診断用(一度も認識できていない場合に案内を出す)
@@ -421,13 +421,25 @@ class MonitorApp:
             if pp is not None:
                 self.tracker.set_pp(*pp)
 
-        # 相手PPは画面右上に「PP 6 /9」形式で常時表示されている(実対戦動画で確認)。
+        # 相手PPは画面右上に「PP n /m」形式で常時表示されている(実対戦動画で確認)。
         opponent_pp_rect = self.regions.single("opponent_pp")
         if opponent_pp_rect is not None:
-            observed = self._plausible_pp(ocr_reader.read_pp(self.regions.crop(frame, opponent_pp_rect)))
+            crop = self.regions.crop(frame, opponent_pp_rect)
+            raw = ocr_reader._ocr_digits_string(crop)
+            observed = self._plausible_pp(ocr_reader.parse_pp_text(raw))
             confirmed = self._stable["opponent_pp"].update(observed)
             if confirmed is not None:
                 self.tracker.set_opponent_pp(*confirmed)
+            else:
+                # 現在/最大の両方は読めなくても、最大PPだけ拾えればターン推定に使う
+                # (装飾数字OCRで先頭桁が落ちて "/m" だけ読めることがあるため)。
+                # 単発の誤読で最大PP=ターンが過大にならないよう2フレーム確定+単調増加に限る。
+                max_pp = ocr_reader.parse_pp_max_text(raw)
+                if max_pp is None or not 1 <= max_pp <= MAX_PLAUSIBLE_PP:
+                    max_pp = None
+                confirmed_max = self._stable["opponent_max_pp"].update(max_pp)
+                if confirmed_max is not None and confirmed_max > self.tracker.state.opponent_max_pp:
+                    self.tracker.set_opponent_pp(self.tracker.state.opponent_pp, confirmed_max)
 
     def _infer_clans(self, player: Player, card_ids: list[Optional[str]]) -> None:
         """認識できたカード(ニュートラル以外)からそのプレイヤーのクラスを自動判別する.
