@@ -54,10 +54,17 @@ class NameMatcher:
             (normalize_name(c.name), c) for c in database.all() if c.name
         ]
 
-    def match(self, text: Optional[str], min_ratio: float = 0.6) -> Optional[tuple[Card, float]]:
+    def match(
+        self, text: Optional[str], min_ratio: float = 0.6, min_query_coverage: float = 0.7
+    ) -> Optional[tuple[Card, float]]:
         """OCRテキストに最も近いカードと類似度を返す。閾値未満/候補なしは None.
 
         正規化後の文字数が1文字以下のテキストは、短すぎて誤一致しやすいので照合しない。
+
+        min_query_coverage: OCRテキスト(正規化後)がカード名の長さのこの割合未満なら棄却する。
+        DBに存在しない短い名前(例: トークン「フェアリー」は公式カード一覧APIに載らない)を
+        読んだとき、それを前方一致する長い別カード(フェアリーテイマー等)に誤マッチさせない
+        ためのガード。実機で「フェアリー」→「フェアリーテイマー(一致度0.67-0.80)」の誤記録を確認。
         """
         if not text:
             return None
@@ -72,5 +79,8 @@ class NameMatcher:
             if best is None or ratio > best[1]:
                 best = (card, ratio)
         if best is None or best[1] < min_ratio:
+            return None
+        best_norm = normalize_name(best[0].name)
+        if best_norm and len(query) < min_query_coverage * len(best_norm):
             return None
         return best
