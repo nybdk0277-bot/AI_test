@@ -76,6 +76,6 @@
     [1448, 120, 80, 80]
   ],
   "play_reveal": [720, 173, 480, 640],
-  "play_reveal_name": [845, 235, 350, 66],
+  "play_reveal_name": [770, 195, 410, 105],
   "active_player_pixel": [1740, 470]
 }

@@ -5,7 +5,7 @@
   "hash_size": 16,
   "match_max_distance": 14,
   "reveal_max_distance": 40,
-  "reveal_confirm_frames": 2,
+  "reveal_confirm_frames": 1,
   "reveal_diagnostic_distance": 100,
   "reveal_use_name_ocr": true,
   "reveal_name_min_ratio": 0.6,

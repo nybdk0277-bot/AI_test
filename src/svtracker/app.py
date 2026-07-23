@@ -186,15 +186,17 @@ class MonitorApp:
             else:
                 name_crop = self.regions.crop(frame, name_rect)
                 name_crop.save(out / "crop_play_reveal_name.png")
-                raw = ocr_reader.read_card_name(name_crop)
+                best_card, best_ratio, raw = self._read_reveal_name(frame)
                 if raw:
-                    matched = self.name_matcher.match(raw, min_ratio=self.settings.reveal_name_min_ratio)
-                    if matched is not None:
+                    if best_card is not None and best_ratio >= self.settings.reveal_name_min_ratio:
                         lines.append(
-                            f"[play_reveal_name] OCR='{raw}' → {matched[0].name} (一致度={matched[1]:.2f})"
+                            f"[play_reveal_name] OCR='{raw}' → {best_card.name} (一致度={best_ratio:.2f})"
                         )
                     else:
-                        lines.append(f"[play_reveal_name] OCR='{raw}' → 一致なし")
+                        lines.append(
+                            f"[play_reveal_name] OCR='{raw}' → 一致なし"
+                            f"(最有力={best_card.name if best_card else '?'} 一致度={best_ratio:.2f})"
+                        )
                 else:
                     lines.append(
                         "[play_reveal_name] OCR結果なし(Tesseract本体+日本語データ jpn が必要。"
@@ -220,44 +222,76 @@ class MonitorApp:
                 return name_actions
         return self._detect_play_reveal_by_phash(frame, turn)
 
+    def _read_reveal_name(self, frame) -> tuple[Optional[Card], float, Optional[str]]:
+        """プレイ表示のカード名バナー領域を帯状にスライドOCRし、最良一致を返す.
+
+        バナーの縦位置はプレイ演出の進行で数十pxぶれる(実対戦動画で確認)ため、設定枠
+        (縦に余裕を持たせた帯)の中を、枠高の約4割の高さの帯を約2割刻みでずらしながら
+        1行OCR(--psm 7)し、DB名とのあいまい一致度が最も高い帯の結果を採用する。
+        戻り値は (カード, 一致度, 生テキスト)。読めなければ (None, 0.0, None)。
+        """
+        rect = self.regions.single("play_reveal_name")
+        if rect is None:
+            return None, 0.0, None
+        x, y, w, h = rect
+        band_h = max(24, round(h * 0.4))
+        step = max(8, round(h * 0.2))
+        best_card: Optional[Card] = None
+        best_ratio = 0.0
+        best_raw: Optional[str] = None
+        offset = 0
+        while offset + band_h <= h + step:
+            band_y = y + min(offset, max(0, h - band_h))
+            crop = self.regions.crop(frame, (x, band_y, w, band_h))
+            raw = ocr_reader.read_card_name(crop)
+            offset += step
+            if not raw:
+                continue
+            matched = self.name_matcher.match(raw, min_ratio=0.0)
+            if matched is not None and matched[1] > best_ratio:
+                best_card, best_ratio, best_raw = matched[0], matched[1], raw
+        return best_card, best_ratio, best_raw
+
     def _detect_play_reveal_by_name(self, frame, turn: int) -> list[Action]:
         """プレイ表示のカード名バナーをOCRし、DB名とあいまい照合してプレイを検出する.
 
         同じカードが reveal_confirm_frames 連続で最有力になって初めて記録する(表示は
         数フレーム出続けるため時間的に安定。単発の誤読を弾く)。自分/相手は手番で判定。
         """
-        rect = self.regions.single("play_reveal_name")
-        if rect is None:
+        if self.regions.single("play_reveal_name") is None:
             return []
-        crop = self.regions.crop(frame, rect)
-        raw = ocr_reader.read_card_name(crop)
-        if not raw:
+        best_card, best_ratio, raw = self._read_reveal_name(frame)
+        if raw is None:
             self._reveal_name_candidate_id = None
             self._reveal_name_candidate_frames = 0
             return []
-        matched = self.name_matcher.match(raw, min_ratio=self.settings.reveal_name_min_ratio)
+        matched_ok = best_card is not None and best_ratio >= self.settings.reveal_name_min_ratio
 
         # 診断ログ: 読めた生テキストと照合結果(同じ生テキストの繰り返しは抑制)。
         if raw != self._reveal_name_diag_last:
             self._reveal_name_diag_last = raw
-            if matched is not None:
+            if matched_ok:
                 logger.info(
-                    "プレイ表示の名前OCR: '%s' → %s (一致度=%.2f)", raw, matched[0].name, matched[1]
+                    "プレイ表示の名前OCR: '%s' → %s (一致度=%.2f)", raw, best_card.name, best_ratio
                 )
-            else:
+            elif best_ratio >= 0.4:
+                # 完全なゴミ(無関係なUI文字)まで毎回出すとうるさいので、それなりに
+                # 近い候補があった場合だけ「一致なし」を知らせる
                 logger.info(
-                    "プレイ表示の名前OCR: '%s' → 一致なし(min_ratio=%.2f 未満)",
+                    "プレイ表示の名前OCR: '%s' → 一致なし(最有力=%s 一致度=%.2f < min_ratio=%.2f)",
                     raw,
+                    best_card.name if best_card else "?",
+                    best_ratio,
                     self.settings.reveal_name_min_ratio,
                 )
 
-        if matched is None:
+        if not matched_ok:
             self._reveal_name_candidate_id = None
             self._reveal_name_candidate_frames = 0
             self._last_reveal["play_reveal_name"] = None
             return []
 
-        card = matched[0]
+        card = best_card
         if card.card_id == self._reveal_name_candidate_id:
             self._reveal_name_candidate_frames += 1
         else:
@@ -277,7 +311,7 @@ class MonitorApp:
                 player=player,
                 action_type=ActionType.PLAY_CARD,
                 card_id=card.card_id,
-                detail=f"プレイ表示の名前OCRから認識(一致度{matched[1]:.2f})",
+                detail=f"プレイ表示の名前OCRから認識(一致度{best_ratio:.2f})",
             )
         ]
 
